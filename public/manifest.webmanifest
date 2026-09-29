@@ -1,0 +1,11 @@
+{
+  "name": "Carte du campus UAC",
+  "short_name": "Carte UAC",
+  "description": "Trouver son chemin sur le campus de l'Université d'Abomey-Calavi",
+  "lang": "fr",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#14532d",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

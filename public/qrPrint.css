@@ -1,0 +1,90 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  padding: 20px;
+  color: #1c1917;
+}
+h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+.screen-only p {
+  margin: 0 0 12px;
+  color: #57534e;
+}
+.warning {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #78350f;
+}
+.toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.toolbar input,
+.toolbar select,
+.toolbar button {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid #d6d3d1;
+  border-radius: 8px;
+  background: #fff;
+}
+.toolbar button {
+  background: #14532d;
+  color: #fff;
+  border-color: #14532d;
+  font-weight: 600;
+  cursor: pointer;
+}
+.qr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.qr-card {
+  border: 2px solid #14532d;
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+  break-inside: avoid;
+}
+.qr-card img {
+  width: 100%;
+  max-width: 200px;
+  aspect-ratio: 1;
+}
+.qr-card-title {
+  font-weight: 700;
+  color: #14532d;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.qr-card-name {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 4px 0;
+}
+.qr-card-help {
+  font-size: 12px;
+  color: #57534e;
+}
+@media print {
+  .screen-only {
+    display: none;
+  }
+  body {
+    padding: 0;
+  }
+  .qr-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
