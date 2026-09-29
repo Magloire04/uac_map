@@ -14,7 +14,7 @@ export default [
   {
     languageOptions: { ecmaVersion: 2024, sourceType: 'module' },
     rules: {
-      // Règles de sécurité bloquantes (standard ASIN : linter avec règles de sécurité en mode erreur).
+      // Règles de sécurité bloquantes : en mode erreur, jamais en simple avertissement.
       'no-eval': 'error',
       'no-implied-eval': 'error',
       'no-new-func': 'error',

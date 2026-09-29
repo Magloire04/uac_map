@@ -4,7 +4,7 @@ Tout écart aux conventions de [CONTRIBUTING.md](../CONTRIBUTING.md) est une dé
 
 ## 2026-09-29 · Préfixe de branche `UAC-{numéro d'issue}`
 
-**Règle d'origine** : `type/ASIN-{ticket Jira}-{description}`.
+**Règle d'origine** : le nom de branche porte le numéro du ticket Jira (`type/{PROJET}-{ticket}-{description}`).
 **Décision** : le projet n'utilise pas Jira ; le suivi passe par les issues GitHub. Les branches et les titres de PR portent donc le préfixe `UAC-` suivi du numéro d'issue (`feature/UAC-12-plans-interieurs`, `[UAC-12] Plans intérieurs`). La traçabilité avec le backlog est conservée.
 Exception pour l'import initial : les issues n'étaient pas encore ouvertes, les numéros `UAC-1` à `UAC-4` renvoient directement aux PR #1 à #4, qui décrivent chacune leur objectif et leurs critères.
 **À revoir** : si le projet rejoint un outil de suivi existant.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vérifie un message de commit : format Conventional Commits (standard ASIN) et absence de signature
+# Vérifie un message de commit : format Conventional Commits et absence de signature
 # ou de co-auteur ajoutés automatiquement par un outil.
 # Usage : checkCommitMessage.sh <fichier-contenant-le-message>
 set -euo pipefail
