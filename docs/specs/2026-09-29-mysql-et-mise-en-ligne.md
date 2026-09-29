@@ -37,7 +37,7 @@ La décision « Stockage en fichier JSON » de `docs/decisions.md` prévoyait d�
 | Node.js       | 24.15                                | 24.21.0 (Setup Node.js App)            | 24                     |
 | Lancement     | `npm start`                          | LiteSpeed, fichier `app.cjs`           | `npm test`             |
 | Configuration | `.env` et `.env.test`                | Variables de l'écran Setup Node.js App | Variables du workflow  |
-| Données       | Base `uac_map`, tests `uac_map_test` | Base `cqfjoztqtf_uacmap`               | Base `uac_map_test`    |
+| Données       | Base `uac_map`, tests `uac_map_test` | Base `<compte>_uacmap`                 | Base `uac_map_test`    |
 
 ## 5. Modèle de données
 
@@ -163,6 +163,8 @@ Le tri et la pagination des listes se font en SQL. `sort-by` n'accepte que `id` 
 | `HTTPS_ENABLED`, `HTTPS_PORT` | Non           | `false`, `3443` | Inchangés, pour les tests sur téléphone en local uniquement                                                       |
 | `OVERPASS_URL`                | Non           | overpass-api.de | Inchangé                                                                                                          |
 
+En production, ces variables sont écrites dans un fichier `.env` à la racine de l'application (droits `600`, hors de `public_html`). Le serveur le lit au démarrage sans écraser une variable déjà définie, et les commandes lancées en SSH (`npm run database:migrate`…) le lisent aussi. L'écran Setup Node.js App ne sert qu'à choisir le mode Production.
+
 `DATA_FILE` disparaît. Le dossier `data/` ne garde que `.admin-token` (local), `cert/` (HTTPS local) et `osm-brut.json` (réponse brute d'OpenStreetMap).
 
 Le serveur refuse de démarrer, avec un message clair qui ne contient aucun secret, dans trois cas : une variable obligatoire manque, la base est injoignable, ou le schéma est en retard sur les migrations présentes dans le code.
@@ -236,17 +238,17 @@ Nouveaux tests, écrits avant le code correspondant :
 
 Toutes les étapes sont décrites pas à pas dans `docs/deployment.md`.
 
-| Étape           | Outil cPanel             | Détail                                                                                                                                 |
-| --------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Base         | Database Wizard          | Base `cqfjoztqtf_uacmap`, utilisateur du même nom, mot de passe fort, droits sur cette base uniquement                                 |
-| 2. Code         | Git Version Control      | Clone de `https://github.com/Magloire04/uac_map.git` dans `/home/cqfjoztqtf/uac_map`, hors de `public_html`, branche `main`            |
-| 3. Application  | Setup Node.js App        | Node 24.21.0, mode Production, racine `uac_map`, URL `uacmap.bytechnum.com`, fichier de démarrage `app.cjs`, variables de la section 8 |
-| 4. Dépendances  | Setup Node.js App ou SSH | Installation sans les outils de développement (`npm install --omit=dev` dans l'environnement de l'application)                         |
-| 5. Schéma       | SSH                      | `npm run database:migrate`                                                                                                             |
-| 6. Identifiants | SSH                      | Fichier `~/.my.cnf` (utilisateur et mot de passe de la base), droits `600`, pour les sauvegardes                                       |
-| 7. Sauvegardes  | Tâches Cron              | Sauvegarde quotidienne à 3 h (section 12.4)                                                                                            |
+| Étape           | Outil cPanel             | Détail                                                                                                                                              |
+| --------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Base         | Database Wizard          | Base `<compte>_uacmap`, utilisateur du même nom, mot de passe fort, droits sur cette base uniquement                                                |
+| 2. Code         | Git Version Control      | Clone de `https://github.com/Magloire04/uac_map.git` dans `/home/<compte>/uac_map`, hors de `public_html`, branche `main`                           |
+| 3. Application  | Setup Node.js App        | Node 24.21.0, mode Production, racine `uac_map`, URL `uacmap.bytechnum.com`, fichier de démarrage `app.cjs` ; configuration dans `.env` (section 8) |
+| 4. Dépendances  | Setup Node.js App ou SSH | Installation sans les outils de développement (`npm install --omit=dev` dans l'environnement de l'application)                                      |
+| 5. Schéma       | SSH                      | `npm run database:migrate`                                                                                                                          |
+| 6. Identifiants | SSH                      | Fichier dédié `~/.uac_map.my.cnf` (utilisateur et mot de passe de la base), droits `600`, pour les sauvegardes                                      |
+| 7. Sauvegardes  | Tâches Cron              | Sauvegarde quotidienne à 3 h (section 12.4)                                                                                                         |
 
-CloudLinux range les dépendances dans l'environnement de l'application et relie `node_modules` à cet emplacement. Il ne faut donc pas créer de dossier `node_modules` à la main dans `/home/cqfjoztqtf/uac_map`.
+CloudLinux range les dépendances dans l'environnement de l'application et relie `node_modules` à cet emplacement. Il ne faut donc pas créer de dossier `node_modules` à la main dans `/home/<compte>/uac_map`.
 
 ### 12.2 Publication d'une version
 
@@ -265,7 +267,7 @@ Les PR du projet sont fusionnées dans `develop`. Une branche `release/AAAA-MM-J
 ### 12.4 Sauvegardes
 
 - `scripts/deployment/backupDatabase.sh` exporte la base avec `mysqldump --single-transaction`, compresse l'export, le date (`uac_map-AAAAMMJJ-HHMM.sql.gz`), le range dans `~/backups/uac_map/` et efface les exports de plus de 14 jours.
-- Le mot de passe est lu dans `~/.my.cnf`. Il n'apparaît ni dans le script, ni dans la tâche cron, ni dans les journaux.
+- Le mot de passe est lu dans `~/.uac_map.my.cnf`, un fichier dédié qui ne touche pas au `~/.my.cnf` éventuel du compte. Il n'apparaît ni dans le script, ni dans la tâche cron, ni dans les journaux.
 - Le script tourne tous les jours à 3 h, et avant chaque mise à jour.
 - La restauration (décompression puis import avec `mysql`) est décrite dans `docs/deployment.md`. Elle est testée une fois après la mise en ligne, en réimportant un export dans le MariaDB de WampServer.
 - Limite : les exports restent sur le même serveur. Un export est téléchargé chaque semaine, ou une sauvegarde externe de l'hébergeur est activée.
