@@ -5,7 +5,7 @@
 
 Carte et guidage piéton pour le campus de l'Université d'Abomey-Calavi (UAC). On tape « scolarité », « BU » ou « amphi 1000 », et l'appli trace le chemin à pied jusqu'à la bonne porte, avec des consignes en français et un guidage GPS. Elle fonctionne dans le navigateur du téléphone, sans installation, et continue sans réseau une fois la carte chargée.
 
-> **Statut : prototype.** Le moteur d'itinéraire, l'API et le mode collecte fonctionnent. Les données du campus restent à relever sur le terrain : au premier lancement, un réseau **fictif** sert de démonstration.
+> **Statut : prototype en ligne** sur [uacmap.bytechnum.com](https://uacmap.bytechnum.com) (version 0.2.0). Le moteur d'itinéraire, l'API et le mode collecte fonctionnent. La carte en ligne reste vide tant que le campus n'a pas été relevé sur le terrain. En local, le premier lancement charge un réseau **fictif** de démonstration.
 
 | Itinéraire                                                                 | Mode collecte : tracé d'un chemin                               |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -83,12 +83,18 @@ Depuis un endroit éloigné du campus, l'appli le détecte et propose de toucher
 
 ## Relever le campus
 
+Le mode collecte est aujourd'hui réservé à l'équipe de relevé : il s'ouvre avec le jeton d'accès que l'administrateur transmet à chaque membre (menu > Mode collecte). La contribution ouverte, sans jeton partagé et avec validation des propositions, est prévue pour une prochaine version.
+
 1. Videz la démonstration (menu > Mode collecte > menu > Vider la carte) ou lancez `npm run import-osm` pour partir de ce qu'OpenStreetMap connaît déjà.
 2. **Tracer un chemin** sur le fond satellite. Un point posé près d'un chemin existant s'y accroche : c'est ce qui relie le réseau. Tracez aussi les raccourcis réellement empruntés et marquez escaliers et passages inondables.
 3. **Enregistrer en marchant** les sentiers cachés sous les arbres (seuls les relevés GPS à ± 15 m ou mieux sont gardés).
 4. **Ajouter un lieu** : centre du bâtiment, nom, catégorie, sigles et surnoms, puis chaque porte avec une note (« porte côté parking, 1er étage à gauche »).
 5. **Vérifier** en demandant des itinéraires entre lieux éloignés : un trajet absurde signale presque toujours deux chemins non raccordés.
 6. **Imprimer les QR codes** (menu > Imprimer les QR codes) pour les portails, carrefours et halls.
+
+## En ligne
+
+L'application tourne sur un hébergement cPanel mutualisé, avec MariaDB 11.4 et Node.js 24. L'installation, les mises à jour, les sauvegardes quotidiennes et la restauration sont décrites dans [docs/deployment.md](docs/deployment.md). Seule la branche `main` est déployée, et chaque version publiée y porte une étiquette (`v0.2.0` pour la première).
 
 ## Architecture
 
