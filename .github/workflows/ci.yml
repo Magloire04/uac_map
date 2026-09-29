@@ -15,18 +15,40 @@ jobs:
   lint-et-tests:
     name: lint-et-tests
     runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        # Identifiants d'un conteneur jetable, recréé à chaque exécution : ce ne sont pas des secrets.
+        env:
+          MARIADB_DATABASE: uac_map_test
+          MARIADB_USER: uac_map
+          MARIADB_PASSWORD: uac_map_ci
+          MARIADB_ROOT_PASSWORD: uac_map_ci_root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: 3306
+      DATABASE_NAME: uac_map_test
+      DATABASE_USER: uac_map
+      DATABASE_PASSWORD: uac_map_ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - name: Linter (règles de sécurité en erreur)
         run: npm run lint
       - name: Formatage
         run: npm run format:check
-      - name: Tests
+      - name: Tests (unitaires et sur MariaDB)
         run: npm test
 
   commits:
