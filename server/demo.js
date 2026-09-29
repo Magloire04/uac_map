@@ -6,7 +6,7 @@
 // recherche et itinéraires dès le premier lancement. Les positions ne correspondent PAS aux vrais bâtiments.
 
 import { createProjector } from '../shared/geo.js';
-import { createEmptyCampusMap, DEFAULT_CENTER } from './store.js';
+import { createEmptyCampusMap, DEFAULT_CENTER } from './campusMapDefaults.js';
 
 const roundCoordinate = (value) => Math.round(value * 1e7) / 1e7;
 

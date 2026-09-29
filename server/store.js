@@ -8,25 +8,9 @@
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { createEmptyCampusMap, DEFAULT_CENTER, DEFAULT_ZOOM, SCHEMA_VERSION } from './campusMapDefaults.js';
 
-export const SCHEMA_VERSION = 2;
-export const DEFAULT_CENTER = [2.341985, 6.416091];
-export const DEFAULT_ZOOM = 16;
-
-export function createEmptyCampusMap() {
-  return {
-    version: SCHEMA_VERSION,
-    settings: {
-      name: "Université d'Abomey-Calavi",
-      center: DEFAULT_CENTER,
-      zoom: DEFAULT_ZOOM,
-      isDemo: false,
-      updatedAt: new Date().toISOString(),
-    },
-    places: [],
-    paths: [],
-  };
-}
+export { createEmptyCampusMap, DEFAULT_CENTER, DEFAULT_ZOOM, SCHEMA_VERSION };
 
 // Conversion du format du premier prototype (version 1, champs en français) vers la version 2.
 const LEGACY_CATEGORIES = {
