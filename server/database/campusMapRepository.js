@@ -65,8 +65,9 @@ const placeValues = (place) => [
 // Recherche du texte tel quel : « ! » sert de caractère d'échappement pour %, _ et lui-même.
 const toContainsPattern = (text) => `%${text.replace(/[!%_]/g, (character) => `!${character}`)}%`;
 
-// ORDER BY et LIMIT ne peuvent pas être des paramètres : la colonne et le sens viennent d'une liste fermée,
-// page et limite sont des entiers déjà contrôlés par l'API.
+// ORDER BY ne peut pas être un paramètre : la colonne et le sens viennent d'une liste fermée. LIMIT et OFFSET
+// passent en paramètres (chaînes, acceptées par MariaDB et MySQL 8) pour garder un texte SQL constant : sinon,
+// chaque numéro de page créerait une instruction préparée de plus sur le serveur, partagé sur l'hébergement.
 function buildPageClause({ page, limit, sortBy, order }) {
   const isValid =
     Object.hasOwn(SORTABLE_COLUMNS, sortBy) &&
@@ -77,14 +78,20 @@ function buildPageClause({ page, limit, sortBy, order }) {
     limit >= 1;
   if (!isValid) throw new Error('Pagination invalide');
   const direction = SORT_DIRECTIONS[order];
-  return `ORDER BY ${SORTABLE_COLUMNS[sortBy]} ${direction}, id ${direction} LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
+  return {
+    clause: `ORDER BY ${SORTABLE_COLUMNS[sortBy]} ${direction}, id ${direction} LIMIT ? OFFSET ?`,
+    parameters: [String(limit), String((page - 1) * limit)],
+  };
 }
 
 async function listRows(executor, { table, columns, conditions, parameters, pagination }) {
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const pageClause = buildPageClause(pagination);
+  const page = buildPageClause(pagination);
   const [[{ total }]] = await executor.execute(`SELECT COUNT(*) AS total FROM ${table} ${whereClause}`, parameters);
-  const [rows] = await executor.execute(`SELECT ${columns} FROM ${table} ${whereClause} ${pageClause}`, parameters);
+  const [rows] = await executor.execute(`SELECT ${columns} FROM ${table} ${whereClause} ${page.clause}`, [
+    ...parameters,
+    ...page.parameters,
+  ]);
   return { rows, total: Number(total) };
 }
 
@@ -92,17 +99,17 @@ async function touchSettings(executor, now) {
   await executor.execute('UPDATE campus_settings SET updated_at = ? WHERE id = 1', [now]);
 }
 
-async function insertPlaceRow(executor, place, now) {
+async function insertPlaceRow(executor, place, now, createdAt = now) {
   await executor.execute(
     'INSERT INTO places (id, name, category, aliases, description, `access`, longitude, latitude, entrances, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [place.id, ...placeValues(place), now, now],
+    [place.id, ...placeValues(place), createdAt, now],
   );
 }
 
-async function insertPathRow(executor, path, now) {
+async function insertPathRow(executor, path, now, createdAt = now) {
   await executor.execute(
     'INSERT INTO paths (id, `type`, name, is_flood_prone, coordinates, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [path.id, path.type, path.name, path.isFloodProne, JSON.stringify(path.coordinates), now, now],
+    [path.id, path.type, path.name, path.isFloodProne, JSON.stringify(path.coordinates), createdAt, now],
   );
 }
 
@@ -186,8 +193,10 @@ export async function listPaths(executor, { page, limit, sortBy, order, type }) 
   return { items: rows.map(toPath), total };
 }
 
-export async function findPath(executor, pathId) {
-  const [rows] = await executor.execute(`SELECT ${PATH_COLUMNS} FROM paths WHERE id = ?`, [pathId]);
+// isLocking : lecture verrouillée (FOR UPDATE) pour une modification lue puis réécrite dans une transaction.
+export async function findPath(executor, pathId, { isLocking = false } = {}) {
+  const lockClause = isLocking ? ' FOR UPDATE' : '';
+  const [rows] = await executor.execute(`SELECT ${PATH_COLUMNS} FROM paths WHERE id = ?${lockClause}`, [pathId]);
   return rows.length ? toPath(rows[0]) : null;
 }
 
@@ -213,15 +222,24 @@ export async function deletePath(executor, pathId, now = new Date()) {
   return true;
 }
 
+// « table » vient toujours du code (places ou paths), jamais d'une requête.
+async function readCreationDates(executor, table) {
+  const [rows] = await executor.execute(`SELECT id, created_at FROM ${table}`);
+  return new Map(rows.map((row) => [row.id, row.created_at]));
+}
+
 // Remplace tout le contenu de la carte en une transaction. « transform » reçoit la carte actuelle, lignes
 // verrouillées, et renvoie la nouvelle : vider la carte, charger la démonstration, importer OpenStreetMap.
 export async function rewriteCampusMap(pool, transform, now = new Date()) {
   return withTransaction(pool, async (connection) => {
     const next = await transform(await readCampusMap(connection, { isLocking: true }));
+    // Les lignes conservées gardent leur date de création : seules les nouvelles prennent « now ».
+    const placeCreationDates = await readCreationDates(connection, 'places');
+    const pathCreationDates = await readCreationDates(connection, 'paths');
     await connection.execute('DELETE FROM places');
     await connection.execute('DELETE FROM paths');
-    for (const place of next.places) await insertPlaceRow(connection, place, now);
-    for (const path of next.paths) await insertPathRow(connection, path, now);
+    for (const place of next.places) await insertPlaceRow(connection, place, now, placeCreationDates.get(place.id));
+    for (const path of next.paths) await insertPathRow(connection, path, now, pathCreationDates.get(path.id));
     const { name, center, zoom, isDemo } = next.settings;
     const settingsValues = [name, center[0], center[1], zoom, isDemo, now];
     await connection.execute(
@@ -234,11 +252,24 @@ export async function rewriteCampusMap(pool, transform, now = new Date()) {
   });
 }
 
-// Premier lancement (aucun réglage en base) : démonstration hors production, carte vide en production.
+// Premier lancement (aucun réglage ni aucune donnée en base) : démonstration hors production, carte vide en production.
 // Le verrou évite que deux copies de l'application qui démarrent ensemble initialisent deux fois.
 export async function initialiseCampusMap(pool, { isProduction, buildDemoCampusMap }, now = new Date()) {
   return withNamedLock(pool, INITIALISATION_LOCK, async () => {
     if (await readSettings(pool)) return 'existing';
+    // Réglages absents mais lieux ou chemins présents (restauration partielle, suppression manuelle) :
+    // on recrée seulement les réglages, sans jamais toucher aux données.
+    const [[{ rowCount }]] = await pool.execute(
+      'SELECT (SELECT COUNT(*) FROM places) + (SELECT COUNT(*) FROM paths) AS rowCount',
+    );
+    if (Number(rowCount) > 0) {
+      await rewriteCampusMap(
+        pool,
+        (campusMap) => ({ ...campusMap, settings: createEmptyCampusMap(now).settings }),
+        now,
+      );
+      return 'settings';
+    }
     if (isProduction) {
       await rewriteCampusMap(pool, () => createEmptyCampusMap(now), now);
       return 'empty';

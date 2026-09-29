@@ -229,3 +229,53 @@ databaseTest('démarre sur une carte vide en production', async () => {
   assert.deepEqual(campusMap.places, []);
   assert.equal(await initialiseCampusMap(database, { isProduction: true, buildDemoCampusMap }), 'existing');
 });
+
+databaseTest('garde un texte SQL constant quel que soit le numéro de page', async () => {
+  await emptyTheMap();
+  const connection = await database.getConnection();
+  try {
+    const readPreparedCount = async () =>
+      Number((await connection.query("SHOW GLOBAL STATUS LIKE 'Prepared_stmt_count'"))[0][0].Value);
+    const before = await readPreparedCount();
+    for (let page = 1; page <= 50; page++) await listPlaces(connection, { ...firstPage, page });
+    assert.ok((await readPreparedCount()) - before <= 2, 'une instruction préparée par numéro de page');
+  } finally {
+    connection.release();
+  }
+});
+
+databaseTest('garde la date de création des lieux et chemins conservés par une réécriture', async () => {
+  await emptyTheMap();
+  const place = buildPlace();
+  const path = buildPath();
+  const createdAt = new Date('2026-09-01T08:00:00.000Z');
+  const rewrittenAt = new Date('2026-09-29T08:00:00.000Z');
+  await insertPlace(database, place, createdAt);
+  await insertPath(database, path, createdAt);
+  await rewriteCampusMap(
+    database,
+    (campusMap) => ({ ...campusMap, places: [...campusMap.places, buildPlace({ id: 'place_nouveau' })] }),
+    rewrittenAt,
+  );
+  const readCreatedAt = async (table, id) =>
+    (await database.execute(`SELECT created_at FROM ${table} WHERE id = ?`, [id]))[0][0].created_at.toISOString();
+  assert.equal(await readCreatedAt('places', place.id), createdAt.toISOString());
+  assert.equal(await readCreatedAt('paths', path.id), createdAt.toISOString());
+  assert.equal(await readCreatedAt('places', 'place_nouveau'), rewrittenAt.toISOString());
+});
+
+databaseTest('recrée seulement les réglages quand ils manquent alors que la carte contient des données', async () => {
+  await emptyTheMap();
+  const place = buildPlace();
+  await insertPlace(database, place);
+  for (const isProduction of [true, false]) {
+    await database.execute('DELETE FROM campus_settings');
+    assert.equal(await initialiseCampusMap(database, { isProduction, buildDemoCampusMap }), 'settings');
+    const campusMap = await readCampusMap(database);
+    assert.deepEqual(
+      campusMap.places.map((existingPlace) => existingPlace.id),
+      [place.id],
+    );
+    assert.equal(campusMap.settings.isDemo, false);
+  }
+});
