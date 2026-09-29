@@ -223,3 +223,30 @@ databaseTest('refuse une catégorie ou un type de chemin répétés dans la requ
     assert.equal(response.status, 400, path);
   }
 });
+
+databaseTest('applique deux modifications partielles simultanées d’un même chemin', async () => {
+  const created = await adminCall('/paths', {
+    method: 'POST',
+    body: {
+      type: 'footpath',
+      coordinates: [
+        [2.342, 6.416],
+        [2.3425, 6.4162],
+      ],
+    },
+  });
+  const path = (await created.json()).data;
+  for (let trial = 0; trial < 10; trial++) {
+    await adminCall(`/paths/${path.id}`, { method: 'PATCH', body: { name: '', isFloodProne: false } });
+    await Promise.all([
+      adminCall(`/paths/${path.id}`, { method: 'PATCH', body: { name: `Allée ${trial}` } }),
+      adminCall(`/paths/${path.id}`, { method: 'PATCH', body: { isFloodProne: true } }),
+    ]);
+    const { data } = await (await callApi(`/paths/${path.id}`)).json();
+    assert.deepEqual(
+      { name: data.name, isFloodProne: data.isFloodProne },
+      { name: `Allée ${trial}`, isFloodProne: true },
+    );
+  }
+  await adminCall(`/paths/${path.id}`, { method: 'DELETE' });
+});

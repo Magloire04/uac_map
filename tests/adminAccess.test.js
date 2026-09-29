@@ -108,3 +108,18 @@ databaseTest('répond 401 à un cookie de session fantaisiste', async () => {
     assert.equal(response.status, 401, value.slice(0, 12));
   }
 });
+
+databaseTest('ne laisse comparer que dix jetons quand les essais arrivent en parallèle', async () => {
+  await clearAttempts();
+  const baseUrl = await startApp();
+  const headers = { 'X-Forwarded-For': '203.0.113.40' };
+  const statuses = await Promise.all(
+    Array.from({ length: 30 }, async () => (await login(baseUrl, { token: 'mauvais-jeton-000', headers })).status),
+  );
+  assert.ok(statuses.filter((status) => status === 401).length <= 10, `401 reçus : ${statuses.join(',')}`);
+  assert.equal(
+    statuses.filter((status) => status === 429).length,
+    30 - statuses.filter((status) => status === 401).length,
+  );
+  await clearAttempts();
+});

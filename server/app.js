@@ -23,7 +23,7 @@ import {
   deleteAdminSession,
   findAdminSessionExpiration,
 } from './database/adminSessionRepository.js';
-import { clearFailedAttempts, isClientBlocked, recordFailedAttempt } from './database/failedLoginAttemptRepository.js';
+import { clearFailedAttempts, reserveLoginAttempt } from './database/failedLoginAttemptRepository.js';
 import {
   deletePath,
   deletePlace,
@@ -206,11 +206,10 @@ export function createApp({
     const bearerToken = header.startsWith('Bearer ') ? header.slice(7) : '';
     if (bearerToken) {
       const clientDigest = getClientDigest(request);
-      if (!(await isClientBlocked(database, clientDigest, now)) && isSameSecret(bearerToken, tokenDigest)) {
+      if ((await reserveLoginAttempt(database, clientDigest, now)) && isSameSecret(bearerToken, tokenDigest)) {
         await clearFailedAttempts(database, clientDigest);
         return next();
       }
-      await recordFailedAttempt(database, clientDigest, now);
     }
     logSecurityEvent(
       'admin_access_denied',
@@ -231,12 +230,12 @@ export function createApp({
     asyncRoute(async (request, response) => {
       const now = getNow();
       const clientDigest = getClientDigest(request);
-      if (await isClientBlocked(database, clientDigest, now)) {
+      // L'essai est compté avant la comparaison : des requêtes parallèles ne peuvent pas dépasser la limite.
+      if (!(await reserveLoginAttempt(database, clientDigest, now))) {
         logSecurityEvent('admin_login_blocked', { requestId: request.requestId }, 'warn');
         return sendError(response, 429, 'TOO_MANY_ATTEMPTS', 'Trop de tentatives, réessayez dans 15 minutes');
       }
       if (!isSameSecret(request.body?.token, tokenDigest)) {
-        await recordFailedAttempt(database, clientDigest, now);
         logSecurityEvent('admin_login_failed', { requestId: request.requestId }, 'warn');
         return sendError(response, 401, 'INVALID_TOKEN', "Jeton d'accès incorrect");
       }
@@ -418,7 +417,8 @@ export function createApp({
     asyncRoute(async (request, response) => {
       const body = request.body || {};
       const path = await withTransaction(database, async (connection) => {
-        const existing = await findPath(connection, request.params.pathId);
+        // Lecture verrouillée : deux modifications partielles simultanées s'appliquent l'une après l'autre.
+        const existing = await findPath(connection, request.params.pathId, { isLocking: true });
         if (!existing) return null;
         const { type, name, isFloodProne } = cleanPath({
           type: body.type ?? existing.type,
