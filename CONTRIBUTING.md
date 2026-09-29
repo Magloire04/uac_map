@@ -1,6 +1,6 @@
 # Contribuer à Carte UAC
 
-Les conventions ci-dessous reprennent les standards de développement de l'ASIN (nommage, API, sécurité, Git et revue de code). Les adaptations propres au projet sont listées et justifiées dans [docs/decisions.md](docs/decisions.md).
+Les conventions ci-dessous reprennent les standards de développement (nommage, API, sécurité, Git et revue de code). Les adaptations propres au projet sont listées et justifiées dans [docs/decisions.md](docs/decisions.md).
 
 ## Branches (Gitflow)
 
