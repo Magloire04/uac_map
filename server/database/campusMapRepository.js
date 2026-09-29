@@ -99,17 +99,17 @@ async function touchSettings(executor, now) {
   await executor.execute('UPDATE campus_settings SET updated_at = ? WHERE id = 1', [now]);
 }
 
-async function insertPlaceRow(executor, place, now) {
+async function insertPlaceRow(executor, place, now, createdAt = now) {
   await executor.execute(
     'INSERT INTO places (id, name, category, aliases, description, `access`, longitude, latitude, entrances, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [place.id, ...placeValues(place), now, now],
+    [place.id, ...placeValues(place), createdAt, now],
   );
 }
 
-async function insertPathRow(executor, path, now) {
+async function insertPathRow(executor, path, now, createdAt = now) {
   await executor.execute(
     'INSERT INTO paths (id, `type`, name, is_flood_prone, coordinates, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [path.id, path.type, path.name, path.isFloodProne, JSON.stringify(path.coordinates), now, now],
+    [path.id, path.type, path.name, path.isFloodProne, JSON.stringify(path.coordinates), createdAt, now],
   );
 }
 
@@ -220,15 +220,24 @@ export async function deletePath(executor, pathId, now = new Date()) {
   return true;
 }
 
+// « table » vient toujours du code (places ou paths), jamais d'une requête.
+async function readCreationDates(executor, table) {
+  const [rows] = await executor.execute(`SELECT id, created_at FROM ${table}`);
+  return new Map(rows.map((row) => [row.id, row.created_at]));
+}
+
 // Remplace tout le contenu de la carte en une transaction. « transform » reçoit la carte actuelle, lignes
 // verrouillées, et renvoie la nouvelle : vider la carte, charger la démonstration, importer OpenStreetMap.
 export async function rewriteCampusMap(pool, transform, now = new Date()) {
   return withTransaction(pool, async (connection) => {
     const next = await transform(await readCampusMap(connection, { isLocking: true }));
+    // Les lignes conservées gardent leur date de création : seules les nouvelles prennent « now ».
+    const placeCreationDates = await readCreationDates(connection, 'places');
+    const pathCreationDates = await readCreationDates(connection, 'paths');
     await connection.execute('DELETE FROM places');
     await connection.execute('DELETE FROM paths');
-    for (const place of next.places) await insertPlaceRow(connection, place, now);
-    for (const path of next.paths) await insertPathRow(connection, path, now);
+    for (const place of next.places) await insertPlaceRow(connection, place, now, placeCreationDates.get(place.id));
+    for (const path of next.paths) await insertPathRow(connection, path, now, pathCreationDates.get(path.id));
     const { name, center, zoom, isDemo } = next.settings;
     const settingsValues = [name, center[0], center[1], zoom, isDemo, now];
     await connection.execute(
