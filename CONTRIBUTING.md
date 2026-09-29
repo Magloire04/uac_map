@@ -86,17 +86,19 @@ Premier retour sous 4 heures ouvrables. On ne fusionne pas sa propre PR, sauf co
 
 ### Sécurité
 
-- Aucune valeur externe concaténée dans une requête, une commande ou du HTML. Côté navigateur, toute insertion HTML passe par le gabarit `html` de `public/safeHtml.js` (la règle ESLint `no-unsanitized` bloque le reste).
+- Aucune valeur externe concaténée dans une requête, une commande ou du HTML. En SQL, les valeurs passent toujours en paramètres (requêtes préparées) ; un nom de colonne ou un sens de tri ne vient que d'une liste fermée. Côté navigateur, toute insertion HTML passe par le gabarit `html` de `public/safeHtml.js` (la règle ESLint `no-unsanitized` bloque le reste).
 - Contrôle d'accès côté serveur sur chaque route d'écriture (`requireAdmin`).
 - Secrets uniquement dans `.env` ou le gestionnaire de secrets de l'hébergement, jamais dans le code ni dans Git. Chaque nouvelle variable est documentée dans `.env.example`.
 - Journal : événements de sécurité oui (`logSecurityEvent`), jetons, mots de passe, adresses IP et données personnelles jamais.
 - Réponses d'erreur génériques : aucune trace d'exécution renvoyée au client.
+- Toute évolution du schéma passe par un nouveau fichier dans `server/database/migrations/`, jamais par la modification d'un fichier déjà appliqué.
 
 ### Tests
 
 - Un test par comportement, nommé par la phrase qui décrit ce comportement.
 - Toute fonction à logique métier a ses tests : chemin nominal, cas limites, cas d'erreur.
 - Un bug se corrige en écrivant d'abord le test qui le reproduit.
+- Les tests d'intégration (API, accès aux données, sessions, migrations, commandes) tournent sur une vraie base MariaDB configurée dans `.env.test` (modèle `.env.test.example`). Son nom doit se terminer par `_test`, car les tests vident ses tables. Sans cette base, ils sont ignorés en local avec un avertissement ; la CI les exécute toujours.
 
 Avant d'ouvrir une PR : `npm run check`.
 

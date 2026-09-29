@@ -31,29 +31,46 @@ Carte et guidage piéton pour le campus de l'Université d'Abomey-Calavi (UAC). 
 
 ## Démarrage rapide
 
-Prérequis : Node.js 22.9 ou plus récent.
+Prérequis : Node.js 22.9 ou plus récent, et MariaDB 11.4 (fourni par WampServer sous Windows) ou MySQL 8.
 
-```bash
-git clone https://github.com/Magloire04/uac_map.git
-cd uac_map
-npm install
-npm start
-```
+1. Créer les bases et leur utilisateur (phpMyAdmin ou ligne de commande MariaDB) :
 
-Ouvrez http://localhost:3000. Le jeton d'accès au mode collecte est écrit dans `data/.admin-token` au premier lancement (il n'apparaît jamais dans les journaux).
+   ```sql
+   CREATE DATABASE uac_map CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE DATABASE uac_map_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'uac_map'@'localhost' IDENTIFIED BY 'un-mot-de-passe-local';
+   CREATE USER 'uac_map'@'127.0.0.1' IDENTIFIED BY 'un-mot-de-passe-local';
+   GRANT ALL PRIVILEGES ON uac_map.* TO 'uac_map'@'localhost', 'uac_map'@'127.0.0.1';
+   GRANT ALL PRIVILEGES ON uac_map_test.* TO 'uac_map'@'localhost', 'uac_map'@'127.0.0.1';
+   ```
 
-Pour personnaliser la configuration, copiez `.env.example` en `.env` : chaque variable y est documentée.
+2. Installer, configurer et lancer :
 
-| Commande                 | Rôle                                                              |
-| ------------------------ | ----------------------------------------------------------------- |
-| `npm run dev`            | Serveur relancé à chaque modification                             |
-| `npm test`               | Tests unitaires et d'intégration                                  |
-| `npm run lint`           | ESLint, règles de sécurité en erreur bloquante                    |
-| `npm run format`         | Formatage Prettier                                                |
-| `npm run check`          | Lint, formatage et tests, comme la CI                             |
-| `npm run reset -- --oui` | Vide la carte avant la vraie collecte                             |
-| `npm run demo`           | Recharge le jeu de démonstration                                  |
-| `npm run import-osm`     | Importe chemins, bâtiments nommés et entrées depuis OpenStreetMap |
+   ```bash
+   git clone https://github.com/Magloire04/uac_map.git
+   cd uac_map
+   npm install
+   cp .env.example .env            # renseigner DATABASE_PASSWORD
+   cp .env.test.example .env.test  # même mot de passe, base uac_map_test
+   npm run database:migrate
+   npm start
+   ```
+
+Sous Windows, clonez avec `git clone -c core.autocrlf=input …` : Prettier exige des fins de ligne LF, et le hook `pre-commit` bloquerait sinon chaque commit.
+
+Ouvrez http://localhost:3000. Au premier lancement, la carte de démonstration est chargée et le jeton d'accès au mode collecte est écrit dans `data/.admin-token` (il n'apparaît jamais dans les journaux). Chaque variable de configuration est documentée dans `.env.example`.
+
+| Commande                   | Rôle                                                                       |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `npm run database:migrate` | Applique les migrations manquantes du schéma de la base                    |
+| `npm run dev`              | Serveur relancé à chaque modification                                      |
+| `npm test`                 | Tests unitaires et d'intégration (ces derniers sur la base de `.env.test`) |
+| `npm run lint`             | ESLint, règles de sécurité en erreur bloquante                             |
+| `npm run format`           | Formatage Prettier                                                         |
+| `npm run check`            | Lint, formatage et tests, comme la CI                                      |
+| `npm run reset -- --oui`   | Vide la carte avant la vraie collecte                                      |
+| `npm run demo`             | Recharge le jeu de démonstration                                           |
+| `npm run import-osm`       | Importe chemins, bâtiments nommés et entrées depuis OpenStreetMap          |
 
 ## Tester sur un téléphone
 
@@ -78,7 +95,7 @@ Depuis un endroit éloigné du campus, l'appli le détecte et propose de toucher
 ```
 public/    appli web : app.js (navigation), collectMode.js (mode collecte), sw.js (hors ligne)
 shared/    code commun navigateur et serveur : géométrie, graphe piéton et A*, recherche, consignes, validation
-server/    API Express, stockage, sessions du mode collecte, journal de sécurité, import OpenStreetMap
+server/    API Express, accès à MariaDB (server/database/ : pool, migrations, lieux, chemins, sessions), journal de sécurité, import OpenStreetMap
 scripts/   commandes de maintenance et contrôles de CI
 docs/      contrat OpenAPI, décisions d'architecture, captures
 tests/     tests node:test
@@ -91,6 +108,7 @@ L'API est versionnée sous `/api/v1`. Son contrat de référence est [`docs/open
 ## Sécurité et données personnelles
 
 - Le mode collecte s'ouvre avec un jeton échangé contre un cookie de session `HttpOnly`, `SameSite=Strict`, `Secure` en HTTPS. Les échecs répétés sont bloqués 15 minutes.
+- La base ne stocke que des empreintes des identifiants de session et des adresses des clients, jamais leur valeur.
 - Le journal de sécurité (une ligne JSON par événement) ne contient ni jeton, ni adresse IP, ni donnée personnelle.
 - Toute insertion HTML côté navigateur passe par un gabarit qui échappe les valeurs ; une règle ESLint bloque les autres.
 - L'appli ne collecte aucune donnée personnelle : pas de compte visiteur, calcul d'itinéraire sur le téléphone.
@@ -101,7 +119,7 @@ Signaler une vulnérabilité : voir [SECURITY.md](SECURITY.md).
 
 - **Précision GPS** : environ 5 m à découvert sur un téléphone courant, bien moins sous les arbres ou entre bâtiments. Le cercle de précision est toujours affiché ; les QR codes donnent un départ exact.
 - **Fonds de carte** : tuiles OpenStreetMap et imagerie Esri appelées directement. Acceptable pour un prototype, pas pour une diffusion à tous les étudiants : prévoir un fond vectoriel auto-hébergé avant le lancement public.
-- **Stockage** : un fichier JSON sur un seul serveur, à remplacer par PostgreSQL/PostGIS quand plusieurs équipes saisiront en même temps.
+- **Stockage** : MariaDB sur un seul serveur, sauvegardée chaque nuit (voir [docs/deployment.md](docs/deployment.md)).
 - Un seul jeton partagé pour le mode collecte, pas de comptes nominatifs ni d'historique des modifications.
 - Pas encore de plans d'intérieur ni d'étages navigables.
 
