@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Installé automatiquement par « npm install » (script prepare : git config core.hooksPath .githooks).
+exec "$(git rev-parse --show-toplevel)/scripts/ci/checkCommitMessage.sh" "$1"
