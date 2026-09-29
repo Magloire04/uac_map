@@ -5,7 +5,7 @@
 // Sessions du mode collecte. Le jeton d'accès n'est échangé qu'une fois contre un identifiant de session
 // aléatoire, stocké dans un cookie httpOnly inaccessible au JavaScript de la page.
 
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export const SESSION_COOKIE_NAME = 'uac_admin_session';
 export const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
@@ -18,6 +18,26 @@ export function isSameSecret(candidate, expectedDigest) {
 
 export function createTokenDigest(adminToken) {
   return hashValue(adminToken);
+}
+
+// Rangée avec chaque session : changer ADMIN_TOKEN ferme toutes les sessions ouvertes avec l'ancien jeton.
+export function createTokenFingerprint(adminToken) {
+  return hashValue(`uac-map:session-token:${adminToken}`);
+}
+
+export function createSessionId() {
+  return randomBytes(32).toString('base64url');
+}
+
+export function createSessionDigest(sessionId) {
+  return hashValue(sessionId);
+}
+
+// HMAC de l'adresse du client, avec une clé dérivée du jeton : impossible à inverser sans le jeton.
+export function createClientDigest(clientAddress, adminToken) {
+  return createHmac('sha256', hashValue(`uac-map:client-key:${adminToken}`))
+    .update(String(clientAddress))
+    .digest();
 }
 
 export class AdminSessionRegistry {
