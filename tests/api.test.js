@@ -190,8 +190,8 @@ test('renvoie 404 ROUTE_NOT_FOUND sur une route inconnue', async () => {
   assert.equal((await response.json()).error.code, 'ROUTE_NOT_FOUND');
 });
 
-test('sert le code partagé et la bibliothèque de carte', async () => {
-  for (const path of ['/shared/graph.js', '/vendor/maplibre/maplibre-gl.mjs']) {
+test("sert l'appli, le code partagé et la bibliothèque de carte", async () => {
+  for (const path of ['/', '/shared/graph.js', '/vendor/maplibre/maplibre-gl.mjs']) {
     assert.equal((await fetch(baseUrl + path)).status, 200, path);
   }
 });
