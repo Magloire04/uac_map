@@ -40,6 +40,10 @@ export default [
     languageOptions: { globals: globals.node },
   },
   {
+    files: ['app.cjs'],
+    languageOptions: { sourceType: 'commonjs', globals: globals.node },
+  },
+  {
     files: ['public/**/*.js'],
     languageOptions: { globals: globals.browser },
     plugins: { 'no-unsanitized': noUnsanitized },
