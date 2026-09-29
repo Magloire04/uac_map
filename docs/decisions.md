@@ -24,7 +24,7 @@ Exception pour l'import initial : les issues n'étaient pas encore ouvertes, les
 ## 2026-09-29 · Règles ESLint de sécurité désactivées
 
 - `security/detect-object-injection` : signale chaque accès `tableau[index]`, y compris sur des index calculés par le code. Aucun de ces accès n'utilise une clé venant d'une requête HTTP ; les clés externes (catégories, types de chemin) sont vérifiées avec `Object.hasOwn` dans `shared/validate.js`.
-- `security/detect-non-literal-fs-filename` : les chemins de fichiers viennent de la configuration du serveur (`DATA_FILE`), jamais d'une requête.
+- `security/detect-non-literal-fs-filename` : les chemins de fichiers sont fixés dans le code (dossier `data/`, fichiers de migration), jamais tirés d'une requête.
 
 **À revoir** : si une route accepte un jour un nom de fichier ou une clé d'objet fournis par le client.
 
@@ -32,6 +32,14 @@ Exception pour l'import initial : les issues n'étaient pas encore ouvertes, les
 
 L'enveloppe `{ data, meta }` s'applique à toutes les réponses JSON. Deux réponses sont des fichiers et en sont exclues : l'export `GET /api/v1/campus-map?format=geojson` (GeoJSON standard, lisible par QGIS) et le QR code `GET /api/v1/places/{placeId}/qr-code` (image SVG).
 
-## 2026-09-29 · Stockage en fichier JSON
+## 2026-09-29 · Stockage en fichier JSON (remplacée)
+
+**Remplacée** par la décision « MariaDB plutôt que PostgreSQL » ci-dessous.
 
 Un fichier JSON unique, écrit de façon atomique et sérialisée, suffit pour un prototype avec une seule équipe de saisie. Migration prévue vers PostgreSQL/PostGIS quand plusieurs personnes saisiront en parallèle ou qu'un historique des modifications sera nécessaire.
+
+## 2026-09-29 · MariaDB plutôt que PostgreSQL
+
+**Contexte** : la décision « Stockage en fichier JSON » prévoyait PostgreSQL/PostGIS quand plusieurs personnes saisiraient en parallèle ou qu'un historique serait nécessaire. Ces deux besoins arrivent avec la mise en ligne puis la contribution ouverte.
+**Décision** : MariaDB 11.4, avec un SQL compatible MySQL 8. L'hébergement retenu (cPanel mutualisé) fournit et administre MariaDB, et WampServer fournit la même version en local. PostgreSQL demanderait un serveur à installer et à sécuriser soi-même ; les itinéraires restent calculés sur le téléphone, donc PostGIS n'apporte rien aujourd'hui. Détail : [specs/2026-09-29-mysql-et-mise-en-ligne.md](specs/2026-09-29-mysql-et-mise-en-ligne.md).
+**À revoir** : si des requêtes spatiales côté serveur deviennent nécessaires.
