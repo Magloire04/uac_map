@@ -9,6 +9,7 @@ import {
   FAILED_ATTEMPT_WINDOW_MS,
   isClientBlocked,
   recordFailedAttempt,
+  reserveLoginAttempt,
 } from '../server/database/failedLoginAttemptRepository.js';
 import { createTestPool, databaseAfter, databaseBefore, databaseTest, resetTestDatabase } from './testDatabase.js';
 
@@ -64,4 +65,23 @@ databaseTest('ne stocke jamais l’adresse du client en clair', async () => {
   const [rows] = await database.execute('SELECT client_digest FROM failed_login_attempts');
   assert.equal(rows[0].client_digest.length, 32);
   assert.ok(!rows[0].client_digest.includes(Buffer.from('203.0.113.5')));
+});
+
+databaseTest('autorise dix essais par fenêtre et refuse le onzième', async () => {
+  await database.execute('DELETE FROM failed_login_attempts');
+  const outcomes = [];
+  for (let attempt = 0; attempt < 11; attempt++) outcomes.push(await reserveLoginAttempt(database, CLIENT, START));
+  assert.deepEqual(outcomes, [...Array(10).fill(true), false]);
+});
+
+databaseTest('ne laisse passer que dix essais lancés en parallèle', async () => {
+  await database.execute('DELETE FROM failed_login_attempts');
+  const outcomes = await Promise.all(Array.from({ length: 30 }, () => reserveLoginAttempt(database, CLIENT, START)));
+  assert.equal(outcomes.filter(Boolean).length, 10);
+});
+
+databaseTest('rouvre les essais à la fin de la fenêtre', async () => {
+  await database.execute('DELETE FROM failed_login_attempts');
+  for (let attempt = 0; attempt < 11; attempt++) await reserveLoginAttempt(database, CLIENT, START);
+  assert.equal(await reserveLoginAttempt(database, CLIENT, windowEnd), true);
 });
