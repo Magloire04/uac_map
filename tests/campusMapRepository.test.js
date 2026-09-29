@@ -229,3 +229,17 @@ databaseTest('démarre sur une carte vide en production', async () => {
   assert.deepEqual(campusMap.places, []);
   assert.equal(await initialiseCampusMap(database, { isProduction: true, buildDemoCampusMap }), 'existing');
 });
+
+databaseTest('garde un texte SQL constant quel que soit le numéro de page', async () => {
+  await emptyTheMap();
+  const connection = await database.getConnection();
+  try {
+    const readPreparedCount = async () =>
+      Number((await connection.query("SHOW GLOBAL STATUS LIKE 'Prepared_stmt_count'"))[0][0].Value);
+    const before = await readPreparedCount();
+    for (let page = 1; page <= 50; page++) await listPlaces(connection, { ...firstPage, page });
+    assert.ok((await readPreparedCount()) - before <= 2, 'une instruction préparée par numéro de page');
+  } finally {
+    connection.release();
+  }
+});

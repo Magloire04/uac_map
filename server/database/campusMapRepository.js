@@ -65,8 +65,9 @@ const placeValues = (place) => [
 // Recherche du texte tel quel : « ! » sert de caractère d'échappement pour %, _ et lui-même.
 const toContainsPattern = (text) => `%${text.replace(/[!%_]/g, (character) => `!${character}`)}%`;
 
-// ORDER BY et LIMIT ne peuvent pas être des paramètres : la colonne et le sens viennent d'une liste fermée,
-// page et limite sont des entiers déjà contrôlés par l'API.
+// ORDER BY ne peut pas être un paramètre : la colonne et le sens viennent d'une liste fermée. LIMIT et OFFSET
+// passent en paramètres (chaînes, acceptées par MariaDB et MySQL 8) pour garder un texte SQL constant : sinon,
+// chaque numéro de page créerait une instruction préparée de plus sur le serveur, partagé sur l'hébergement.
 function buildPageClause({ page, limit, sortBy, order }) {
   const isValid =
     Object.hasOwn(SORTABLE_COLUMNS, sortBy) &&
@@ -77,14 +78,20 @@ function buildPageClause({ page, limit, sortBy, order }) {
     limit >= 1;
   if (!isValid) throw new Error('Pagination invalide');
   const direction = SORT_DIRECTIONS[order];
-  return `ORDER BY ${SORTABLE_COLUMNS[sortBy]} ${direction}, id ${direction} LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
+  return {
+    clause: `ORDER BY ${SORTABLE_COLUMNS[sortBy]} ${direction}, id ${direction} LIMIT ? OFFSET ?`,
+    parameters: [String(limit), String((page - 1) * limit)],
+  };
 }
 
 async function listRows(executor, { table, columns, conditions, parameters, pagination }) {
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const pageClause = buildPageClause(pagination);
+  const page = buildPageClause(pagination);
   const [[{ total }]] = await executor.execute(`SELECT COUNT(*) AS total FROM ${table} ${whereClause}`, parameters);
-  const [rows] = await executor.execute(`SELECT ${columns} FROM ${table} ${whereClause} ${pageClause}`, parameters);
+  const [rows] = await executor.execute(`SELECT ${columns} FROM ${table} ${whereClause} ${page.clause}`, [
+    ...parameters,
+    ...page.parameters,
+  ]);
   return { rows, total: Number(total) };
 }
 
