@@ -10,7 +10,7 @@ L'application tourne sur un hébergement cPanel mutualisé (CloudLinux, LiteSpee
 
 1. cPanel, Database Wizard.
 2. Base : `uacmap` (cPanel la nomme `<compte>_uacmap`).
-3. Utilisateur : `uacmap` (nommé `<compte>_uacmap`), mot de passe généré par le bouton Password Generator, rangé dans un gestionnaire de mots de passe.
+3. Utilisateur : `uacmap` (nommé `<compte>_uacmap`). Mot de passe de 32 lettres et chiffres, généré en SSH avec `tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32; echo`, collé dans le champ du mot de passe, puis rangé dans un gestionnaire de mots de passe. Ne pas utiliser le générateur de cPanel : ses symboles (`#`, guillemets, barre oblique inverse) seraient mal lus dans `.env` et dans le fichier d'identifiants, et la connexion échouerait sans explication claire.
 4. Droits : ALL PRIVILEGES, sur cette base uniquement. Ce compte héberge d'autres sites : l'utilisateur de la carte ne doit avoir aucun droit sur leurs bases.
 
 ### 1.2 Code
@@ -66,6 +66,8 @@ nano .env
 | `TRUST_PROXY`       | `loopback`, à ajuster à l'étape 2 si besoin |
 | `HTTPS_ENABLED`     | `false`                                     |
 
+Les valeurs s'écrivent sans guillemets tant qu'elles ne contiennent que des lettres, des chiffres, `-` et `_` : c'est le cas du jeton et du mot de passe générés ci-dessus. Un `#` non protégé couperait la valeur.
+
 Le serveur lit ce fichier au démarrage sans écraser une variable déjà définie, et les commandes (`npm run …`) le lisent aussi.
 
 ### 1.6 Schéma, puis démarrage
@@ -115,7 +117,7 @@ Après la fusion d'une version dans `main` :
 ~/uac_map/scripts/deployment/updateProduction.sh
 ```
 
-Le script sauvegarde la base, récupère `main`, installe les dépendances, applique les migrations et redémarre l'application. Il s'arrête à la première erreur. Si le chemin de l'environnement Node diffère de `~/nodevenv/uac_map/24/bin/activate`, le préciser : `NODE_ENVIRONMENT_ACTIVATE=<chemin> ~/uac_map/scripts/deployment/updateProduction.sh`.
+Le script sauvegarde la base, récupère `main`, installe les dépendances, applique les migrations et redémarre l'application. Il s'arrête à la première erreur et affiche alors l'étape en cause et les commandes pour revenir à la version précédente, dont il a noté le commit avant de commencer. Si l'échec survient à l'étape 4 (migrations) ou 5 (redémarrage), restaurer aussi la sauvegarde faite à l'étape 1 (section 4). Si le chemin de l'environnement Node diffère de `~/nodevenv/uac_map/24/bin/activate`, le préciser : `NODE_ENVIRONMENT_ACTIVATE=<chemin> ~/uac_map/scripts/deployment/updateProduction.sh`.
 
 ## 4. Sauvegardes et restauration
 
@@ -125,7 +127,7 @@ Le script sauvegarde la base, récupère `main`, installe les dépendances, appl
 Restaurer en production (application arrêtée dans Setup Node.js App) :
 
 ```bash
-gunzip -c ~/backups/uac_map/uac_map-AAAAMMJJ-HHMM.sql.gz | mysql --defaults-file=$HOME/.uac_map.my.cnf <compte>_uacmap
+gunzip -c ~/backups/uac_map/uac_map-AAAAMMJJ-HHMM.sql.gz | mariadb --defaults-file=$HOME/.uac_map.my.cnf <compte>_uacmap
 ```
 
 Vérifier un export en local (WampServer, MariaDB sur le port 3307) :
@@ -137,11 +139,13 @@ gunzip -c uac_map-AAAAMMJJ-HHMM.sql.gz | mariadb -h 127.0.0.1 -P 3307 -u root ua
 
 ## 5. En cas de problème
 
-| Symptôme                                                             | Cause probable                                                  | Action                                                                                                                    |
-| -------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Page d'erreur de l'hébergeur                                         | L'application refuse de démarrer                                | Lire le fichier `stderr.log` à la racine de l'application : il commence par « Démarrage impossible : » suivi de la raison |
-| « Variables d'environnement manquantes »                             | `.env` incomplet                                                | Compléter `.env`, puis RESTART                                                                                            |
-| « Schéma de la base en retard »                                      | Migrations non appliquées                                       | `npm run database:migrate` dans l'environnement Node, puis RESTART                                                        |
-| « Base de données injoignable »                                      | Identifiants ou nom de base erronés                             | Vérifier `DATABASE_*` dans `.env`                                                                                         |
-| Tout le monde bloqué après des échecs de connexion                   | `TRUST_PROXY` inadapté                                          | Voir la vérification 4 de la section 2                                                                                    |
-| Sauvegarde : « SSL is required, but the server does not support it » | Le client MariaDB exige TLS, le serveur local ne le propose pas | Ajouter une ligne `skip-ssl` dans `~/.uac_map.my.cnf`                                                                     |
+| Symptôme                                                                      | Cause probable                                                  | Action                                                                                                                    |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Page d'erreur de l'hébergeur                                                  | L'application refuse de démarrer                                | Lire le fichier `stderr.log` à la racine de l'application : il commence par « Démarrage impossible : » suivi de la raison |
+| « Variables d'environnement manquantes »                                      | `.env` incomplet                                                | Compléter `.env`, puis RESTART                                                                                            |
+| « Schéma de la base en retard »                                               | Migrations non appliquées                                       | `npm run database:migrate` dans l'environnement Node, puis RESTART                                                        |
+| « Base de données injoignable »                                               | Identifiants ou nom de base erronés                             | Vérifier `DATABASE_*` dans `.env`                                                                                         |
+| Tout le monde bloqué après des échecs de connexion                            | `TRUST_PROXY` inadapté                                          | Voir la vérification 4 de la section 2                                                                                    |
+| Sauvegarde : « Ni mariadb-dump ni mysqldump n'est disponible sur ce serveur » | Outils clients MariaDB absents du PATH SSH                      | Demander à l'hébergeur où ils se trouvent ; en attendant, exporter la base depuis phpMyAdmin (Exporter)                   |
+| Restauration : « mariadb: command not found »                                 | Ancien nom du client                                            | Remplacer `mariadb` par `mysql` dans la commande                                                                          |
+| Sauvegarde : « SSL is required, but the server does not support it »          | Le client MariaDB exige TLS, le serveur local ne le propose pas | Ajouter une ligne `skip-ssl` dans `~/.uac_map.my.cnf`                                                                     |
