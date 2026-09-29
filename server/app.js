@@ -417,7 +417,8 @@ export function createApp({
     asyncRoute(async (request, response) => {
       const body = request.body || {};
       const path = await withTransaction(database, async (connection) => {
-        const existing = await findPath(connection, request.params.pathId);
+        // Lecture verrouillée : deux modifications partielles simultanées s'appliquent l'une après l'autre.
+        const existing = await findPath(connection, request.params.pathId, { isLocking: true });
         if (!existing) return null;
         const { type, name, isFloodProne } = cleanPath({
           type: body.type ?? existing.type,
