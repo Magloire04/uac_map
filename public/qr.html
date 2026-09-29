@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+   - License, v. 2.0. If a copy of the MPL was not distributed with this
+   - file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QR codes « Vous êtes ici »</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/qrPrint.css" />
+  </head>
+  <body>
+    <header class="screen-only" id="page-header">
+      <h1>QR codes « Vous êtes ici »</h1>
+      <p>
+        Chaque code ouvre la carte avec ce lieu comme point de départ exact. Imprimez-les et posez-les aux portails,
+        carrefours et halls.
+      </p>
+      <div class="toolbar">
+        <input id="name-filter" type="search" placeholder="Filtrer par nom" aria-label="Filtrer par nom" />
+        <select id="category-filter" aria-label="Catégorie">
+          <option value="">Toutes les catégories</option>
+        </select>
+        <button id="print-button" type="button">Imprimer</button>
+      </div>
+    </header>
+    <main id="qr-grid" class="qr-grid"></main>
+    <script type="module" src="/qrPrint.js"></script>
+  </body>
+</html>

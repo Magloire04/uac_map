@@ -1,0 +1,45 @@
+{
+  "name": "uac-map",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Carte et guidage piéton du campus de l'Université d'Abomey-Calavi",
+  "type": "module",
+  "engines": {
+    "node": ">=22.9"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "dev": "node --env-file-if-exists=.env --watch server/index.js",
+    "test": "node --env-file-if-exists=.env.test --test --test-concurrency=1 \"tests/**/*.test.js\"",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run lint && npm run format:check && npm test",
+    "demo": "node --env-file-if-exists=.env scripts/loadDemoData.js",
+    "reset": "node --env-file-if-exists=.env scripts/resetCampusMap.js",
+    "import-osm": "node --env-file-if-exists=.env scripts/importOpenStreetMap.js",
+    "database:migrate": "node --env-file-if-exists=.env scripts/migrateDatabase.js",
+    "prepare": "git config core.hooksPath .githooks || true"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "maplibre-gl": "^6.11.2",
+    "mysql2": "^3.24.4",
+    "qrcode": "^1.5.4",
+    "selfsigned": "^5.5.0"
+  },
+  "license": "MPL-2.0",
+  "author": "Elisée Magloire ATONDE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Magloire04/uac_map.git"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "eslint-plugin-no-unsanitized": "^4.1.5",
+    "eslint-plugin-security": "^4.1.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9"
+  }
+}

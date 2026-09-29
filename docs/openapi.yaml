@@ -1,0 +1,500 @@
+openapi: 3.1.0
+info:
+  title: API Carte UAC
+  version: 1.0.0
+  description: |
+    API de la carte du campus de l'Université d'Abomey-Calavi.
+    Toutes les réponses JSON suivent la même enveloppe : `{ data, meta? }` en cas de succès,
+    `{ error: { code, message, status } }` en cas d'échec. Les listes sont toujours paginées (`meta`).
+    Ce fichier est le contrat de référence : toute modification de l'API commence ici.
+  license:
+    name: MPL-2.0
+    url: https://mozilla.org/MPL/2.0/
+servers:
+  - url: /api/v1
+tags:
+  - name: Carte
+  - name: Lieux
+  - name: Chemins
+  - name: Session
+  - name: Supervision
+
+components:
+  securitySchemes:
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: uac_admin_session
+      description: Cookie httpOnly posé par POST /admin/session (appli web).
+    adminToken:
+      type: http
+      scheme: bearer
+      description: Jeton ADMIN_TOKEN, réservé aux scripts et à l'intégration continue.
+
+  parameters:
+    RequestId:
+      name: X-Request-ID
+      in: header
+      required: false
+      description: Identifiant de traçage (8 à 64 caractères alphanumériques ou tirets). Généré s'il est absent, renvoyé dans la réponse.
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Order:
+      name: order
+      in: query
+      schema: { type: string, enum: [asc, desc], default: asc }
+    PlaceId:
+      name: placeId
+      in: path
+      required: true
+      schema: { type: string }
+    PathId:
+      name: pathId
+      in: path
+      required: true
+      schema: { type: string }
+
+  headers:
+    RequestId:
+      description: Identifiant de traçage de la requête.
+      schema: { type: string }
+
+  schemas:
+    Position:
+      type: object
+      required: [longitude, latitude]
+      properties:
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+    Entrance:
+      allOf:
+        - $ref: '#/components/schemas/Position'
+        - type: object
+          properties:
+            note: { type: string, maxLength: 120 }
+    PlaceInput:
+      type: object
+      required: [name, longitude, latitude]
+      properties:
+        name: { type: string, maxLength: 120 }
+        category:
+          type: string
+          enum:
+            [
+              administration,
+              lecture-hall,
+              classroom,
+              faculty,
+              library,
+              food,
+              health,
+              sport,
+              housing,
+              worship,
+              service,
+              transport,
+              gate,
+              landmark,
+              other,
+            ]
+          default: other
+        aliases:
+          type: array
+          maxItems: 15
+          items: { type: string, maxLength: 60 }
+        description: { type: string, maxLength: 1000 }
+        access: { type: string, maxLength: 300, description: Étage, salles, horaires. }
+        longitude: { type: number }
+        latitude: { type: number }
+        entrances:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/Entrance' }
+    Place:
+      allOf:
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+        - $ref: '#/components/schemas/PlaceInput'
+    PathInput:
+      type: object
+      required: [coordinates]
+      properties:
+        type: { type: string, enum: [footpath, road, track, corridor, stairs], default: footpath }
+        name: { type: string, maxLength: 120 }
+        isFloodProne: { type: boolean, default: false }
+        coordinates:
+          type: array
+          minItems: 2
+          maxItems: 5000
+          items:
+            type: array
+            prefixItems: [{ type: number }, { type: number }]
+            description: '[longitude, latitude]'
+    PathUpdate:
+      type: object
+      properties:
+        type: { type: string, enum: [footpath, road, track, corridor, stairs] }
+        name: { type: string, maxLength: 120 }
+        isFloodProne: { type: boolean }
+    Path:
+      allOf:
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+        - $ref: '#/components/schemas/PathInput'
+    CampusMap:
+      type: object
+      properties:
+        version: { type: integer, const: 2 }
+        settings:
+          type: object
+          properties:
+            name: { type: string }
+            center: { type: array, items: { type: number } }
+            zoom: { type: number }
+            isDemo: { type: boolean }
+            updatedAt: { type: string, format: date-time }
+        places: { type: array, items: { $ref: '#/components/schemas/Place' } }
+        paths: { type: array, items: { $ref: '#/components/schemas/Path' } }
+    PaginationMeta:
+      type: object
+      required: [page, limit, total]
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, status]
+          properties:
+            code: { type: string, example: PLACE_NOT_FOUND }
+            message: { type: string, example: Lieu inexistant }
+            status: { type: integer, example: 404 }
+    Session:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            expiresAt: { type: string, format: date-time }
+
+  responses:
+    BadRequest:
+      description: Données invalides (codes VALIDATION_ERROR, INVALID_JSON, INVALID_PAGE, INVALID_LIMIT, INVALID_SORT, INVALID_ORDER, INVALID_CATEGORY, INVALID_PATH_TYPE, INVALID_FORMAT, CONFIRMATION_REQUIRED).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Session absente ou expirée (UNAUTHORIZED), ou jeton incorrect (INVALID_TOKEN).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Ressource inexistante (PLACE_NOT_FOUND, PATH_NOT_FOUND, ROUTE_NOT_FOUND).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyAttempts:
+      description: Trop d'échecs d'authentification (TOO_MANY_ATTEMPTS), réessayer après 15 minutes.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoContent:
+      description: Succès sans contenu.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestId' }
+
+security: []
+
+paths:
+  /health:
+    get:
+      tags: [Supervision]
+      summary: État du service
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      responses:
+        '200':
+          description: Service disponible
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { status: { type: string, const: ok } } }
+
+  /campus-map:
+    get:
+      tags: [Carte]
+      summary: Carte complète (lieux et chemins)
+      description: Utilisée par l'appli, qui calcule les itinéraires sur le téléphone. Avec format=geojson, renvoie un fichier GeoJSON à télécharger (hors enveloppe).
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, geojson], default: json }
+      responses:
+        '200':
+          description: Carte complète
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/CampusMap' }
+            application/geo+json:
+              schema: { type: object, description: FeatureCollection GeoJSON }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    delete:
+      tags: [Carte]
+      summary: Vider la carte (tous les lieux et chemins)
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - name: confirm
+          in: query
+          required: true
+          schema: { type: string, const: 'true' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /places:
+    get:
+      tags: [Lieux]
+      summary: Liste paginée des lieux
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Order' }
+        - name: sort-by
+          in: query
+          schema: { type: string, enum: [id, name], default: name }
+        - name: search
+          in: query
+          description: Recherche dans le nom et les alias.
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Page de lieux
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Place' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Lieux]
+      summary: Créer un lieu
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaceInput' }
+      responses:
+        '201':
+          description: Lieu créé
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Place' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /places/{placeId}:
+    parameters: [{ $ref: '#/components/parameters/PlaceId' }, { $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Lieux]
+      summary: Détail d'un lieu
+      responses:
+        '200':
+          description: Lieu
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Place' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Lieux]
+      summary: Remplacer entièrement un lieu
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaceInput' }
+      responses:
+        '200':
+          description: Lieu remplacé
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Place' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Lieux]
+      summary: Supprimer un lieu
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /places/{placeId}/qr-code:
+    parameters: [{ $ref: '#/components/parameters/PlaceId' }, { $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Lieux]
+      summary: QR code « Vous êtes ici » du lieu
+      description: Encode l'adresse de l'appli avec ce lieu comme point de départ (PUBLIC_URL/?ici=placeId).
+      responses:
+        '200':
+          description: Image SVG
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /paths:
+    get:
+      tags: [Chemins]
+      summary: Liste paginée des chemins
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Order' }
+        - name: sort-by
+          in: query
+          schema: { type: string, enum: [id, name], default: id }
+        - name: type
+          in: query
+          schema: { type: string, enum: [footpath, road, track, corridor, stairs] }
+      responses:
+        '200':
+          description: Page de chemins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Path' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Chemins]
+      summary: Créer un chemin
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PathInput' }
+      responses:
+        '201':
+          description: Chemin créé
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Path' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /paths/{pathId}:
+    parameters: [{ $ref: '#/components/parameters/PathId' }, { $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Chemins]
+      summary: Détail d'un chemin
+      responses:
+        '200':
+          description: Chemin
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Path' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Chemins]
+      summary: Modifier le type, le nom ou le caractère inondable (le tracé ne change pas)
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PathUpdate' }
+      responses:
+        '200':
+          description: Chemin modifié
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Path' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Chemins]
+      summary: Supprimer un chemin
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/session:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [Session]
+      summary: Ouvrir une session du mode collecte
+      description: Échange le jeton d'accès contre un cookie httpOnly, SameSite=Strict, valable 12 heures.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '201':
+          description: Session ouverte (en-tête Set-Cookie)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyAttempts' }
+    get:
+      tags: [Session]
+      summary: Vérifier la session en cours
+      security: [{ adminSession: [] }]
+      responses:
+        '200':
+          description: Session active
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [Session]
+      summary: Fermer la session
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }

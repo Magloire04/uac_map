@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+    # « edited » relance la CI quand la base d'une PR empilée passe sur develop.
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-et-tests:
+    name: lint-et-tests
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        # Identifiants d'un conteneur jetable, recréé à chaque exécution : ce ne sont pas des secrets.
+        env:
+          MARIADB_DATABASE: uac_map_test
+          MARIADB_USER: uac_map
+          MARIADB_PASSWORD: uac_map_ci
+          MARIADB_ROOT_PASSWORD: uac_map_ci_root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: 3306
+      DATABASE_NAME: uac_map_test
+      DATABASE_USER: uac_map
+      DATABASE_PASSWORD: uac_map_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Linter (règles de sécurité en erreur)
+        run: npm run lint
+      - name: Formatage
+        run: npm run format:check
+      - name: Tests (unitaires et sur MariaDB)
+        run: npm test
+
+  commits:
+    name: commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Conventional Commits, sans signature automatique
+        run: |
+          status=0
+          for sha in $(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            git log -1 --format=%B "$sha" > /tmp/message
+            if ! scripts/ci/checkCommitMessage.sh /tmp/message; then
+              echo "::error::Commit $sha non conforme"
+              status=1
+            fi
+          done
+          exit $status
+      - name: Titre de la PR au format [UAC-numéro]
+        env:
+          PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if ! [[ "$PULL_REQUEST_TITLE" =~ ^\[UAC-[0-9]+\]\ .{1,52}$ ]]; then
+            echo "::error::Titre attendu : [UAC-12] Description courte (60 caractères au maximum)"
+            exit 1
+          fi
