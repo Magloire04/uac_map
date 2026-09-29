@@ -18,6 +18,7 @@
     "demo": "node --env-file-if-exists=.env scripts/loadDemoData.js",
     "reset": "node --env-file-if-exists=.env scripts/resetCampusMap.js",
     "import-osm": "node --env-file-if-exists=.env scripts/importOpenStreetMap.js",
+    "database:migrate": "node --env-file-if-exists=.env scripts/migrateDatabase.js",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

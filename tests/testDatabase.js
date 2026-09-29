@@ -9,6 +9,7 @@ import { test, before, after } from 'node:test';
 import mysql from 'mysql2/promise';
 import { readDatabaseConfiguration } from '../server/configuration.js';
 import { createDatabasePool } from '../server/database/connection.js';
+import { applyPendingMigrations } from '../server/database/migrations.js';
 
 const SKIP_REASON = 'aucune base de test configurée (copier .env.test.example en .env.test)';
 
@@ -50,4 +51,10 @@ export async function dropAllTestTables() {
   } finally {
     await connection.end();
   }
+}
+
+// Base de test vide, au schéma à jour.
+export async function resetTestDatabase() {
+  await dropAllTestTables();
+  await applyPendingMigrations(testDatabaseConfiguration);
 }
