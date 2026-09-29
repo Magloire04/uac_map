@@ -20,7 +20,14 @@ backup_file="$backup_directory/uac_map-$(date -u +%Y%m%d-%H%M).sql.gz"
 temporary_file="$backup_file.partiel"
 trap 'rm -f "$temporary_file"' ERR
 
-mysqldump --defaults-file="$credentials_file" --single-transaction --quick --no-tablespaces "$database_name" \
+# MariaDB 11 fournit mariadb-dump ; l'ancien nom mysqldump n'existe pas toujours sur l'hébergement.
+dump_command=$(command -v mariadb-dump || command -v mysqldump || true)
+if [ -z "$dump_command" ]; then
+  echo "Ni mariadb-dump ni mysqldump n'est disponible sur ce serveur" >&2
+  exit 1
+fi
+
+"$dump_command" --defaults-file="$credentials_file" --single-transaction --quick --no-tablespaces "$database_name" \
   | gzip > "$temporary_file"
 mv "$temporary_file" "$backup_file"
 chmod 600 "$backup_file"
