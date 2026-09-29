@@ -263,3 +263,19 @@ databaseTest('garde la date de création des lieux et chemins conservés par une
   assert.equal(await readCreatedAt('paths', path.id), createdAt.toISOString());
   assert.equal(await readCreatedAt('places', 'place_nouveau'), rewrittenAt.toISOString());
 });
+
+databaseTest('recrée seulement les réglages quand ils manquent alors que la carte contient des données', async () => {
+  await emptyTheMap();
+  const place = buildPlace();
+  await insertPlace(database, place);
+  for (const isProduction of [true, false]) {
+    await database.execute('DELETE FROM campus_settings');
+    assert.equal(await initialiseCampusMap(database, { isProduction, buildDemoCampusMap }), 'settings');
+    const campusMap = await readCampusMap(database);
+    assert.deepEqual(
+      campusMap.places.map((existingPlace) => existingPlace.id),
+      [place.id],
+    );
+    assert.equal(campusMap.settings.isDemo, false);
+  }
+});

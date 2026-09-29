@@ -250,11 +250,24 @@ export async function rewriteCampusMap(pool, transform, now = new Date()) {
   });
 }
 
-// Premier lancement (aucun réglage en base) : démonstration hors production, carte vide en production.
+// Premier lancement (aucun réglage ni aucune donnée en base) : démonstration hors production, carte vide en production.
 // Le verrou évite que deux copies de l'application qui démarrent ensemble initialisent deux fois.
 export async function initialiseCampusMap(pool, { isProduction, buildDemoCampusMap }, now = new Date()) {
   return withNamedLock(pool, INITIALISATION_LOCK, async () => {
     if (await readSettings(pool)) return 'existing';
+    // Réglages absents mais lieux ou chemins présents (restauration partielle, suppression manuelle) :
+    // on recrée seulement les réglages, sans jamais toucher aux données.
+    const [[{ rowCount }]] = await pool.execute(
+      'SELECT (SELECT COUNT(*) FROM places) + (SELECT COUNT(*) FROM paths) AS rowCount',
+    );
+    if (Number(rowCount) > 0) {
+      await rewriteCampusMap(
+        pool,
+        (campusMap) => ({ ...campusMap, settings: createEmptyCampusMap(now).settings }),
+        now,
+      );
+      return 'settings';
+    }
     if (isProduction) {
       await rewriteCampusMap(pool, () => createEmptyCampusMap(now), now);
       return 'empty';
