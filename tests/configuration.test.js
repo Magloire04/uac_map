@@ -4,8 +4,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   ConfigurationError,
+  loadEnvironmentFile,
   parseTrustProxy,
   readDatabaseConfiguration,
   readServerConfiguration,
@@ -84,4 +88,18 @@ test('interprète TRUST_PROXY comme le réglage trust proxy d’Express', () => 
   assert.equal(parseTrustProxy('false'), false);
   assert.equal(parseTrustProxy('2'), 2);
   assert.equal(parseTrustProxy(' loopback, 10.0.0.0/8 '), 'loopback, 10.0.0.0/8');
+});
+
+test('lit un fichier .env sans écraser les variables déjà définies', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'uac-env-'));
+  try {
+    const filePath = join(directory, '.env');
+    await writeFile(filePath, 'DATABASE_NAME=depuis_le_fichier\nPUBLIC_URL=https://exemple.test\n');
+    const environment = { DATABASE_NAME: 'deja_defini' };
+    assert.equal(loadEnvironmentFile(filePath, environment), true);
+    assert.deepEqual(environment, { DATABASE_NAME: 'deja_defini', PUBLIC_URL: 'https://exemple.test' });
+    assert.equal(loadEnvironmentFile(join(directory, 'absent.env'), environment), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

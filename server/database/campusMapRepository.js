@@ -193,8 +193,10 @@ export async function listPaths(executor, { page, limit, sortBy, order, type }) 
   return { items: rows.map(toPath), total };
 }
 
-export async function findPath(executor, pathId) {
-  const [rows] = await executor.execute(`SELECT ${PATH_COLUMNS} FROM paths WHERE id = ?`, [pathId]);
+// isLocking : lecture verrouillée (FOR UPDATE) pour une modification lue puis réécrite dans une transaction.
+export async function findPath(executor, pathId, { isLocking = false } = {}) {
+  const lockClause = isLocking ? ' FOR UPDATE' : '';
+  const [rows] = await executor.execute(`SELECT ${PATH_COLUMNS} FROM paths WHERE id = ?${lockClause}`, [pathId]);
   return rows.length ? toPath(rows[0]) : null;
 }
 

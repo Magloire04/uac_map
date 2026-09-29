@@ -5,6 +5,9 @@
 // Lecture et contrôle de la configuration. Les messages d'erreur ne citent que des noms de variables,
 // jamais leurs valeurs.
 
+import { existsSync, readFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
+
 export class ConfigurationError extends Error {
   constructor(message) {
     super(message);
@@ -66,4 +69,13 @@ export function readServerConfiguration(environment = process.env) {
     trustProxy: parseTrustProxy(environment.TRUST_PROXY),
     database: readDatabaseConfiguration(environment),
   };
+}
+
+// Lit un fichier .env sans écraser une variable déjà définie (même règle que node --env-file).
+export function loadEnvironmentFile(filePath, environment = process.env) {
+  if (!existsSync(filePath)) return false;
+  for (const [name, value] of Object.entries(parseEnv(readFileSync(filePath, 'utf8')))) {
+    if (environment[name] === undefined) environment[name] = value;
+  }
+  return true;
 }

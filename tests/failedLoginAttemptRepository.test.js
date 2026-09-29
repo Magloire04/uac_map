@@ -7,8 +7,6 @@ import { createClientDigest } from '../server/adminSessions.js';
 import {
   clearFailedAttempts,
   FAILED_ATTEMPT_WINDOW_MS,
-  isClientBlocked,
-  recordFailedAttempt,
   reserveLoginAttempt,
 } from '../server/database/failedLoginAttemptRepository.js';
 import { createTestPool, databaseAfter, databaseBefore, databaseTest, resetTestDatabase } from './testDatabase.js';
@@ -29,43 +27,10 @@ databaseAfter(async () => {
   await database.end();
 });
 
-async function recordFailures(count, client = CLIENT, now = START) {
+async function useAttempts(count, client = CLIENT, now = START) {
   await database.execute('DELETE FROM failed_login_attempts');
-  for (let attempt = 0; attempt < count; attempt++) await recordFailedAttempt(database, client, now);
+  for (let attempt = 0; attempt < count; attempt++) await reserveLoginAttempt(database, client, now);
 }
-
-databaseTest('bloque un client au dixième échec, pas avant', async () => {
-  await recordFailures(9);
-  assert.equal(await isClientBlocked(database, CLIENT, START), false);
-  await recordFailedAttempt(database, CLIENT, START);
-  assert.equal(await isClientBlocked(database, CLIENT, START), true);
-});
-
-databaseTest('débloque le client à la fin de la fenêtre de 15 minutes et repart de zéro', async () => {
-  await recordFailures(10);
-  assert.equal(await isClientBlocked(database, CLIENT, windowEnd), false);
-  await recordFailedAttempt(database, CLIENT, windowEnd);
-  const [rows] = await database.execute('SELECT failure_count FROM failed_login_attempts');
-  assert.equal(rows[0].failure_count, 1);
-});
-
-databaseTest('efface le compteur après une connexion réussie', async () => {
-  await recordFailures(10);
-  await clearFailedAttempts(database, CLIENT);
-  assert.equal(await isClientBlocked(database, CLIENT, START), false);
-});
-
-databaseTest('garde un compteur par client', async () => {
-  await recordFailures(10);
-  assert.equal(await isClientBlocked(database, OTHER_CLIENT, START), false);
-});
-
-databaseTest('ne stocke jamais l’adresse du client en clair', async () => {
-  await recordFailures(1);
-  const [rows] = await database.execute('SELECT client_digest FROM failed_login_attempts');
-  assert.equal(rows[0].client_digest.length, 32);
-  assert.ok(!rows[0].client_digest.includes(Buffer.from('203.0.113.5')));
-});
 
 databaseTest('autorise dix essais par fenêtre et refuse le onzième', async () => {
   await database.execute('DELETE FROM failed_login_attempts');
@@ -80,8 +45,27 @@ databaseTest('ne laisse passer que dix essais lancés en parallèle', async () =
   assert.equal(outcomes.filter(Boolean).length, 10);
 });
 
-databaseTest('rouvre les essais à la fin de la fenêtre', async () => {
-  await database.execute('DELETE FROM failed_login_attempts');
-  for (let attempt = 0; attempt < 11; attempt++) await reserveLoginAttempt(database, CLIENT, START);
+databaseTest('rouvre les essais à la fin de la fenêtre et repart de zéro', async () => {
+  await useAttempts(11);
   assert.equal(await reserveLoginAttempt(database, CLIENT, windowEnd), true);
+  const [rows] = await database.execute('SELECT failure_count FROM failed_login_attempts');
+  assert.equal(rows[0].failure_count, 1);
+});
+
+databaseTest('efface le compteur après une connexion réussie', async () => {
+  await useAttempts(11);
+  await clearFailedAttempts(database, CLIENT);
+  assert.equal(await reserveLoginAttempt(database, CLIENT, START), true);
+});
+
+databaseTest('garde un compteur par client', async () => {
+  await useAttempts(11);
+  assert.equal(await reserveLoginAttempt(database, OTHER_CLIENT, START), true);
+});
+
+databaseTest('ne stocke jamais l’adresse du client en clair', async () => {
+  await useAttempts(1);
+  const [rows] = await database.execute('SELECT client_digest FROM failed_login_attempts');
+  assert.equal(rows[0].client_digest.length, 32);
+  assert.ok(!rows[0].client_digest.includes(Buffer.from('203.0.113.5')));
 });

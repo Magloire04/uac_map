@@ -7,17 +7,38 @@ import QRCode from 'qrcode';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { CampusMapStore } from './store.js';
 import { logSecurityEvent, logError } from './securityLog.js';
 import {
-  AdminSessionRegistry,
-  FailedAttemptLimiter,
   SESSION_COOKIE_NAME,
   SESSION_DURATION_MS,
+  createClientDigest,
   createTokenDigest,
+  createTokenFingerprint,
   isSameSecret,
   readCookie,
 } from './adminSessions.js';
+import { withTransaction } from './database/connection.js';
+import {
+  createAdminSession,
+  deleteAdminSession,
+  findAdminSessionExpiration,
+} from './database/adminSessionRepository.js';
+import { clearFailedAttempts, reserveLoginAttempt } from './database/failedLoginAttemptRepository.js';
+import {
+  deletePath,
+  deletePlace,
+  findPath,
+  findPlace,
+  generateId,
+  insertPath,
+  insertPlace,
+  listPaths,
+  listPlaces,
+  readCampusMap,
+  replacePlace,
+  rewriteCampusMap,
+  updatePathAttributes,
+} from './database/campusMapRepository.js';
 import { cleanPlace, cleanPath, ValidationError } from '../shared/validate.js';
 import { PLACE_CATEGORIES } from '../shared/search.js';
 import { PATH_TYPES } from '../shared/graph.js';
@@ -26,7 +47,8 @@ const PROJECT_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TILE_HOSTS = ['https://tile.openstreetmap.org', 'https://server.arcgisonline.com'];
 const DEFAULT_PAGE_LIMIT = 20;
 const MAX_PAGE_LIMIT = 100;
-const MIN_ADMIN_TOKEN_LENGTH = 12;
+const MIN_ADMIN_TOKEN_LENGTH = 18;
+const DUPLICATE_ENTRY = 'ER_DUP_ENTRY';
 
 // Erreur métier transportée jusqu'au gestionnaire d'erreurs, qui produit l'enveloppe standard.
 export class ApiError extends Error {
@@ -85,16 +107,14 @@ function readPagination(query) {
   return { page, limit, sortBy, order };
 }
 
-function paginate(items, { page, limit, sortBy, order }) {
-  const direction = order === 'asc' ? 1 : -1;
-  const sorted = items
-    .slice()
-    .sort((first, second) => direction * String(first[sortBy] ?? '').localeCompare(String(second[sortBy] ?? ''), 'fr'));
-  return {
-    data: sorted.slice((page - 1) * limit, page * limit),
-    meta: { page, limit, total: items.length },
-  };
+// Filtre facultatif à valeur unique : absent ou vide, il est ignoré ; répété (?type=a&type=b), il est refusé.
+function readFilter(value, allowedValues, errorCode, message) {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || !Object.hasOwn(allowedValues, value)) throw new ApiError(400, errorCode, message);
+  return value;
 }
+
+const toPage = ({ items, total }, { page, limit }) => ({ data: items, meta: { page, limit, total } });
 
 function buildGeoJson(campusMap) {
   const features = [
@@ -125,18 +145,39 @@ function buildGeoJson(campusMap) {
   return { type: 'FeatureCollection', features };
 }
 
-export function createApp({ store, adminToken, publicUrl = '' }) {
-  if (!(store instanceof CampusMapStore)) throw new Error('store requis');
+// Identifiants courts (8 caractères aléatoires) : si la clé primaire refuse un doublon, on réessaie une fois.
+async function insertWithFreshId(database, prefix, insert) {
+  const tryInsert = async () => {
+    const id = generateId(prefix);
+    await withTransaction(database, (connection) => insert(connection, id));
+    return id;
+  };
+  try {
+    return await tryInsert();
+  } catch (error) {
+    if (error.code !== DUPLICATE_ENTRY) throw error;
+    return tryInsert();
+  }
+}
+
+export function createApp({
+  database,
+  adminToken,
+  publicUrl = '',
+  trustProxy = 'loopback',
+  getNow = () => new Date(),
+}) {
+  if (!database) throw new Error('database requis');
   if (!adminToken || adminToken.length < MIN_ADMIN_TOKEN_LENGTH) {
     throw new Error(`ADMIN_TOKEN trop court (${MIN_ADMIN_TOKEN_LENGTH} caractères minimum)`);
   }
   const tokenDigest = createTokenDigest(adminToken);
-  const sessions = new AdminSessionRegistry();
-  const limiter = new FailedAttemptLimiter();
+  const tokenFingerprint = createTokenFingerprint(adminToken);
+  const getClientDigest = (request) => createClientDigest(request.ip, adminToken);
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 'loopback');
+  app.set('trust proxy', trustProxy);
   app.use(setSecurityHeaders);
   app.use(assignRequestId);
   app.use(express.json({ limit: '1mb' }));
@@ -153,32 +194,30 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
     response.append('Set-Cookie', attributes.join('; '));
   };
 
+  const asyncRoute = (handler) => (request, response, next) =>
+    Promise.resolve(handler(request, response, next)).catch(next);
+
   // Accès au mode collecte : cookie de session (appli web) ou en-tête Bearer avec le jeton (scripts).
-  const requireAdmin = (request, response, next) => {
-    const sessionExpiration = sessions.getExpiration(readCookie(request, SESSION_COOKIE_NAME));
-    if (sessionExpiration) return next();
+  const requireAdmin = asyncRoute(async (request, response, next) => {
+    const now = getNow();
+    const sessionId = readCookie(request, SESSION_COOKIE_NAME);
+    if (await findAdminSessionExpiration(database, sessionId, tokenFingerprint, now)) return next();
     const header = request.get('authorization') || '';
     const bearerToken = header.startsWith('Bearer ') ? header.slice(7) : '';
-    if (bearerToken && !limiter.isBlocked(request.ip) && isSameSecret(bearerToken, tokenDigest)) {
-      limiter.recordSuccess(request.ip);
-      return next();
+    if (bearerToken) {
+      const clientDigest = getClientDigest(request);
+      if ((await reserveLoginAttempt(database, clientDigest, now)) && isSameSecret(bearerToken, tokenDigest)) {
+        await clearFailedAttempts(database, clientDigest);
+        return next();
+      }
     }
-    if (bearerToken) limiter.recordFailure(request.ip);
     logSecurityEvent(
       'admin_access_denied',
-      {
-        requestId: request.requestId,
-        method: request.method,
-        path: request.path,
-      },
+      { requestId: request.requestId, method: request.method, path: request.path },
       'warn',
     );
     sendError(response, 401, 'UNAUTHORIZED', 'Session du mode collecte absente ou expirée');
-  };
-
-  const asyncRoute = (handler) => (request, response, next) => Promise.resolve(handler(request, response)).catch(next);
-  const findPlace = (placeId) => store.campusMap.places.find((place) => place.id === placeId);
-  const findPath = (pathId) => store.campusMap.paths.find((path) => path.id === pathId);
+  });
 
   const api = express.Router();
 
@@ -186,48 +225,66 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
 
   // ---------- Session du mode collecte ----------
 
-  api.post('/admin/session', (request, response) => {
-    if (limiter.isBlocked(request.ip)) {
-      logSecurityEvent('admin_login_blocked', { requestId: request.requestId }, 'warn');
-      return sendError(response, 429, 'TOO_MANY_ATTEMPTS', 'Trop de tentatives, réessayez dans 15 minutes');
-    }
-    if (!isSameSecret(request.body?.token, tokenDigest)) {
-      limiter.recordFailure(request.ip);
-      logSecurityEvent('admin_login_failed', { requestId: request.requestId }, 'warn');
-      return sendError(response, 401, 'INVALID_TOKEN', "Jeton d'accès incorrect");
-    }
-    limiter.recordSuccess(request.ip);
-    const { sessionId, expiresAt } = sessions.create();
-    writeSessionCookie(request, response, sessionId, SESSION_DURATION_MS);
-    logSecurityEvent('admin_login_succeeded', { requestId: request.requestId });
-    response.status(201).json({ data: { expiresAt: new Date(expiresAt).toISOString() } });
-  });
+  api.post(
+    '/admin/session',
+    asyncRoute(async (request, response) => {
+      const now = getNow();
+      const clientDigest = getClientDigest(request);
+      // L'essai est compté avant la comparaison : des requêtes parallèles ne peuvent pas dépasser la limite.
+      if (!(await reserveLoginAttempt(database, clientDigest, now))) {
+        logSecurityEvent('admin_login_blocked', { requestId: request.requestId }, 'warn');
+        return sendError(response, 429, 'TOO_MANY_ATTEMPTS', 'Trop de tentatives, réessayez dans 15 minutes');
+      }
+      if (!isSameSecret(request.body?.token, tokenDigest)) {
+        logSecurityEvent('admin_login_failed', { requestId: request.requestId }, 'warn');
+        return sendError(response, 401, 'INVALID_TOKEN', "Jeton d'accès incorrect");
+      }
+      await clearFailedAttempts(database, clientDigest);
+      const { sessionId, expiresAt } = await createAdminSession(database, tokenFingerprint, now);
+      writeSessionCookie(request, response, sessionId, SESSION_DURATION_MS);
+      logSecurityEvent('admin_login_succeeded', { requestId: request.requestId });
+      response.status(201).json({ data: { expiresAt: expiresAt.toISOString() } });
+    }),
+  );
 
-  api.get('/admin/session', (request, response) => {
-    const expiresAt = sessions.getExpiration(readCookie(request, SESSION_COOKIE_NAME));
-    if (!expiresAt) return sendError(response, 401, 'UNAUTHORIZED', 'Aucune session active');
-    response.json({ data: { expiresAt: new Date(expiresAt).toISOString() } });
-  });
+  api.get(
+    '/admin/session',
+    asyncRoute(async (request, response) => {
+      const sessionId = readCookie(request, SESSION_COOKIE_NAME);
+      const expiresAt = await findAdminSessionExpiration(database, sessionId, tokenFingerprint, getNow());
+      if (!expiresAt) return sendError(response, 401, 'UNAUTHORIZED', 'Aucune session active');
+      response.json({ data: { expiresAt: expiresAt.toISOString() } });
+    }),
+  );
 
-  api.delete('/admin/session', (request, response) => {
-    sessions.revoke(readCookie(request, SESSION_COOKIE_NAME));
-    writeSessionCookie(request, response, '', 0);
-    logSecurityEvent('admin_logout', { requestId: request.requestId });
-    response.status(204).end();
-  });
+  api.delete(
+    '/admin/session',
+    asyncRoute(async (request, response) => {
+      await deleteAdminSession(database, readCookie(request, SESSION_COOKIE_NAME));
+      writeSessionCookie(request, response, '', 0);
+      logSecurityEvent('admin_logout', { requestId: request.requestId });
+      response.status(204).end();
+    }),
+  );
 
   // ---------- Carte complète (utilisée par l'appli, qui calcule les itinéraires sur le téléphone) ----------
 
-  api.get('/campus-map', (request, response) => {
-    const format = request.query.format ?? 'json';
-    if (format === 'geojson') {
-      response.set('Content-Disposition', 'attachment; filename="campus-uac.geojson"');
-      return response.type('application/geo+json').send(JSON.stringify(buildGeoJson(store.campusMap)));
-    }
-    if (format !== 'json') return sendError(response, 400, 'INVALID_FORMAT', 'format accepte json ou geojson');
-    response.set('Cache-Control', 'no-cache');
-    response.json({ data: store.campusMap });
-  });
+  api.get(
+    '/campus-map',
+    asyncRoute(async (request, response) => {
+      const format = request.query.format ?? 'json';
+      if (format !== 'json' && format !== 'geojson') {
+        return sendError(response, 400, 'INVALID_FORMAT', 'format accepte json ou geojson');
+      }
+      const campusMap = await readCampusMap(database);
+      if (format === 'geojson') {
+        response.set('Content-Disposition', 'attachment; filename="campus-uac.geojson"');
+        return response.type('application/geo+json').send(JSON.stringify(buildGeoJson(campusMap)));
+      }
+      response.set('Cache-Control', 'no-cache');
+      response.json({ data: campusMap });
+    }),
+  );
 
   api.delete(
     '/campus-map',
@@ -236,11 +293,11 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
       if (request.query.confirm !== 'true') {
         throw new ApiError(400, 'CONFIRMATION_REQUIRED', 'Ajoutez ?confirm=true pour vider la carte');
       }
-      await store.update((campusMap) => {
-        campusMap.places = [];
-        campusMap.paths = [];
-        campusMap.settings.isDemo = false;
-      });
+      await rewriteCampusMap(
+        database,
+        (campusMap) => ({ ...campusMap, places: [], paths: [], settings: { ...campusMap.settings, isDemo: false } }),
+        getNow(),
+      );
       logSecurityEvent('campus_map_cleared', { requestId: request.requestId });
       response.status(204).end();
     }),
@@ -248,35 +305,35 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
 
   // ---------- Lieux ----------
 
-  api.get('/places', (request, response) => {
-    const pagination = readPagination(request.query);
-    const search = String(request.query.search ?? '').toLowerCase();
-    const category = request.query.category;
-    if (category && !Object.hasOwn(PLACE_CATEGORIES, category)) {
-      throw new ApiError(400, 'INVALID_CATEGORY', 'Catégorie inconnue');
-    }
-    const places = store.campusMap.places.filter(
-      (place) =>
-        (!category || place.category === category) &&
-        (!search || [place.name, ...place.aliases].some((text) => text.toLowerCase().includes(search))),
-    );
-    response.json(paginate(places, pagination));
-  });
+  api.get(
+    '/places',
+    asyncRoute(async (request, response) => {
+      const pagination = readPagination(request.query);
+      const category = readFilter(request.query.category, PLACE_CATEGORIES, 'INVALID_CATEGORY', 'Catégorie inconnue');
+      const search = String(request.query.search ?? '');
+      response.json(toPage(await listPlaces(database, { ...pagination, category, search }), pagination));
+    }),
+  );
 
-  api.get('/places/:placeId', (request, response) => {
-    const place = findPlace(request.params.placeId);
-    if (!place) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
-    response.json({ data: place });
-  });
+  api.get(
+    '/places/:placeId',
+    asyncRoute(async (request, response) => {
+      const place = await findPlace(database, request.params.placeId);
+      if (!place) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
+      response.json({ data: place });
+    }),
+  );
 
   api.post(
     '/places',
     requireAdmin,
     asyncRoute(async (request, response) => {
-      const place = { id: CampusMapStore.generateId('place'), ...cleanPlace(request.body) };
-      await store.update((campusMap) => campusMap.places.push(place));
-      logSecurityEvent('place_created', { requestId: request.requestId, resourceId: place.id });
-      response.status(201).json({ data: place });
+      const fields = cleanPlace(request.body);
+      const id = await insertWithFreshId(database, 'place', (connection, candidateId) =>
+        insertPlace(connection, { id: candidateId, ...fields }, getNow()),
+      );
+      logSecurityEvent('place_created', { requestId: request.requestId, resourceId: id });
+      response.status(201).json({ data: { id, ...fields } });
     }),
   );
 
@@ -285,11 +342,9 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
     requireAdmin,
     asyncRoute(async (request, response) => {
       const replacement = cleanPlace(request.body);
-      const place = await store.update((campusMap) => {
-        const existing = campusMap.places.find((candidate) => candidate.id === request.params.placeId);
-        if (existing) Object.assign(existing, replacement);
-        return existing;
-      });
+      const place = await withTransaction(database, (connection) =>
+        replacePlace(connection, request.params.placeId, replacement, getNow()),
+      );
       if (!place) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
       logSecurityEvent('place_updated', { requestId: request.requestId, resourceId: place.id });
       response.json({ data: place });
@@ -300,11 +355,9 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
     '/places/:placeId',
     requireAdmin,
     asyncRoute(async (request, response) => {
-      const isRemoved = await store.update((campusMap) => {
-        const index = campusMap.places.findIndex((place) => place.id === request.params.placeId);
-        if (index !== -1) campusMap.places.splice(index, 1);
-        return index !== -1;
-      });
+      const isRemoved = await withTransaction(database, (connection) =>
+        deletePlace(connection, request.params.placeId, getNow()),
+      );
       if (!isRemoved) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
       logSecurityEvent('place_deleted', { requestId: request.requestId, resourceId: request.params.placeId });
       response.status(204).end();
@@ -315,7 +368,7 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
   api.get(
     '/places/:placeId/qr-code',
     asyncRoute(async (request, response) => {
-      const place = findPlace(request.params.placeId);
+      const place = await findPlace(database, request.params.placeId);
       if (!place) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
       const baseUrl = (publicUrl || `${request.protocol}://${request.get('host')}`).replace(/\/$/, '');
       const targetUrl = `${baseUrl}/?ici=${encodeURIComponent(place.id)}`;
@@ -326,29 +379,34 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
 
   // ---------- Chemins ----------
 
-  api.get('/paths', (request, response) => {
-    const pagination = readPagination({ 'sort-by': 'id', ...request.query });
-    const type = request.query.type;
-    if (type && !Object.hasOwn(PATH_TYPES, type))
-      throw new ApiError(400, 'INVALID_PATH_TYPE', 'Type de chemin inconnu');
-    const paths = store.campusMap.paths.filter((path) => !type || path.type === type);
-    response.json(paginate(paths, pagination));
-  });
+  api.get(
+    '/paths',
+    asyncRoute(async (request, response) => {
+      const pagination = readPagination({ 'sort-by': 'id', ...request.query });
+      const type = readFilter(request.query.type, PATH_TYPES, 'INVALID_PATH_TYPE', 'Type de chemin inconnu');
+      response.json(toPage(await listPaths(database, { ...pagination, type }), pagination));
+    }),
+  );
 
-  api.get('/paths/:pathId', (request, response) => {
-    const path = findPath(request.params.pathId);
-    if (!path) throw new ApiError(404, 'PATH_NOT_FOUND', 'Chemin inexistant');
-    response.json({ data: path });
-  });
+  api.get(
+    '/paths/:pathId',
+    asyncRoute(async (request, response) => {
+      const path = await findPath(database, request.params.pathId);
+      if (!path) throw new ApiError(404, 'PATH_NOT_FOUND', 'Chemin inexistant');
+      response.json({ data: path });
+    }),
+  );
 
   api.post(
     '/paths',
     requireAdmin,
     asyncRoute(async (request, response) => {
-      const path = { id: CampusMapStore.generateId('path'), ...cleanPath(request.body) };
-      await store.update((campusMap) => campusMap.paths.push(path));
-      logSecurityEvent('path_created', { requestId: request.requestId, resourceId: path.id });
-      response.status(201).json({ data: path });
+      const fields = cleanPath(request.body);
+      const id = await insertWithFreshId(database, 'path', (connection, candidateId) =>
+        insertPath(connection, { id: candidateId, ...fields }, getNow()),
+      );
+      logSecurityEvent('path_created', { requestId: request.requestId, resourceId: id });
+      response.status(201).json({ data: { id, ...fields } });
     }),
   );
 
@@ -358,8 +416,9 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
     requireAdmin,
     asyncRoute(async (request, response) => {
       const body = request.body || {};
-      const path = await store.update((campusMap) => {
-        const existing = campusMap.paths.find((candidate) => candidate.id === request.params.pathId);
+      const path = await withTransaction(database, async (connection) => {
+        // Lecture verrouillée : deux modifications partielles simultanées s'appliquent l'une après l'autre.
+        const existing = await findPath(connection, request.params.pathId, { isLocking: true });
         if (!existing) return null;
         const { type, name, isFloodProne } = cleanPath({
           type: body.type ?? existing.type,
@@ -367,8 +426,7 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
           isFloodProne: body.isFloodProne ?? existing.isFloodProne,
           coordinates: existing.coordinates,
         });
-        Object.assign(existing, { type, name, isFloodProne });
-        return existing;
+        return updatePathAttributes(connection, existing.id, { type, name, isFloodProne }, getNow());
       });
       if (!path) throw new ApiError(404, 'PATH_NOT_FOUND', 'Chemin inexistant');
       logSecurityEvent('path_updated', { requestId: request.requestId, resourceId: path.id });
@@ -380,11 +438,9 @@ export function createApp({ store, adminToken, publicUrl = '' }) {
     '/paths/:pathId',
     requireAdmin,
     asyncRoute(async (request, response) => {
-      const isRemoved = await store.update((campusMap) => {
-        const index = campusMap.paths.findIndex((path) => path.id === request.params.pathId);
-        if (index !== -1) campusMap.paths.splice(index, 1);
-        return index !== -1;
-      });
+      const isRemoved = await withTransaction(database, (connection) =>
+        deletePath(connection, request.params.pathId, getNow()),
+      );
       if (!isRemoved) throw new ApiError(404, 'PATH_NOT_FOUND', 'Chemin inexistant');
       logSecurityEvent('path_deleted', { requestId: request.requestId, resourceId: request.params.pathId });
       response.status(204).end();
