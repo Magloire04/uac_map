@@ -717,6 +717,19 @@ paths:
                       url: { type: string, description: 'PUBLIC_URL/?contribuer=code' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /contribution/public-link/qr-code:
+    get:
+      tags: [Contribution]
+      summary: QR code du lien de contribution public, à imprimer
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      responses:
+        '200':
+          description: Image SVG
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /contributors:
     get:
       tags: [Relecture]

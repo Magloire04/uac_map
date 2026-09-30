@@ -98,6 +98,13 @@ databaseTest('donne le lien public avec son adresse complète', async () => {
   });
 });
 
+databaseTest('sert le QR code du lien public en SVG', async () => {
+  const response = await callApi('/contribution/public-link/qr-code');
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^image\/svg\+xml/);
+  assert.match(await response.text(), /<svg/);
+});
+
 databaseTest('rejoint par le lien avec un cookie sûr, et reconnaît un téléphone déjà inscrit', async () => {
   const response = await callApi('/contributors', {
     method: 'POST',

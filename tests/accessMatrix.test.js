@@ -18,6 +18,7 @@ const ADMIN_TOKEN = 'jeton-de-test-1234';
 // DELETE /admin/session n'y figure pas : la déconnexion reste ouverte à tous et fermerait les sessions de la matrice.
 const ROUTES = [
   ['GET', '/contribution/public-link', 'public'],
+  ['GET', '/contribution/public-link/qr-code', 'public'],
   ['POST', '/contributors', 'public'],
   ['GET', '/contributors/me', 'contributor'],
   ['PATCH', '/contributors/me', 'contributor'],

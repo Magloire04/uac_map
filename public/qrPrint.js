@@ -18,6 +18,20 @@ categoryFilter.insertAdjacentHTML(
 const { data: campusMap } = await callApi('GET', '/campus-map');
 const places = campusMap.places.slice().sort((first, second) => first.name.localeCompare(second.name, 'fr'));
 
+// Le lien public de contribution, s'il existe, a son affiche en tête de page.
+const publicLink = await callApi('GET', '/contribution/public-link')
+  .then(({ data }) => data)
+  .catch(() => null);
+
+const contributionCard = publicLink
+  ? html`<article class="qr-card is-contribution">
+      <div class="qr-card-title">CONTRIBUEZ À LA CARTE</div>
+      <div class="qr-card-name">Ajoutez un lieu, un chemin, signalez une erreur</div>
+      <img src="/api/v1/contribution/public-link/qr-code" alt="QR code du lien de contribution" />
+      <div class="qr-card-help">Scannez sur le campus : chaque proposition est relue avant publication</div>
+    </article>`
+  : '';
+
 function renderQrCards() {
   const nameQuery = nameFilter.value.trim().toLowerCase();
   const visiblePlaces = places.filter(
@@ -40,7 +54,7 @@ function renderQrCards() {
           </article>`,
       )}`
     : html`<p>Aucun lieu.</p>`;
-  qrGrid.innerHTML = html`${qrCards}`;
+  qrGrid.innerHTML = html`${contributionCard}${qrCards}`;
 }
 
 nameFilter.addEventListener('input', renderQrCards);

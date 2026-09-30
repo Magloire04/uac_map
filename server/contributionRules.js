@@ -5,12 +5,9 @@
 // Règles de la contribution ouverte : présence sur le campus, forme d'une proposition, limites d'envoi,
 // publication directe.
 
-import { isInsidePerimeter } from '../shared/geo.js';
+import { createCampusTest } from '../shared/presence.js';
 import { cleanPath, cleanPlace, cleanText, ValidationError } from '../shared/validate.js';
 
-export const PERIMETER_MARGIN_METERS = 50;
-export const MAX_POSITION_ACCURACY_METERS = 50;
-export const MAX_POSITION_AGE_MS = 2 * 60 * 1000;
 export const MAX_PSEUDONYM_LENGTH = 40;
 export const MAX_REPORT_LENGTH = 500;
 export const MAX_REVIEW_NOTE_LENGTH = 300;
@@ -28,31 +25,14 @@ export const RATE_LIMITS = {
   proposalPerConnection: { kind: 'proposal_per_connection', maxCount: 500, windowMs: HOUR_MS },
 };
 
-export const POSITION_ERROR_MESSAGES = {
-  POSITION_REQUIRED: 'Position du téléphone absente ou invalide',
-  OUTSIDE_CAMPUS: 'Vous devez être sur le campus pour proposer une modification',
-  POSITION_INACCURATE: `Position trop imprécise : ${MAX_POSITION_ACCURACY_METERS} m au plus`,
-  POSITION_TOO_OLD: 'Position trop ancienne : actualisez-la',
-};
-
-const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
-
-// Position envoyée avec une proposition, contrôlée dans cet ordre : forme, présence dans le périmètre (marge
-// comprise), précision, âge mesuré par l'horloge du téléphone. Renvoie un code d'erreur, ou null.
-export function checkDevicePosition(devicePosition, perimeter) {
-  if (!devicePosition || typeof devicePosition !== 'object') return 'POSITION_REQUIRED';
-  const { longitude, latitude, accuracy, ageMs } = devicePosition;
-  const isWellFormed =
-    [longitude, latitude, accuracy, ageMs].every(isFiniteNumber) &&
-    Math.abs(longitude) <= 180 &&
-    Math.abs(latitude) <= 90 &&
-    accuracy >= 0;
-  if (!isWellFormed) return 'POSITION_REQUIRED';
-  if (!isInsidePerimeter([longitude, latitude], perimeter, PERIMETER_MARGIN_METERS)) return 'OUTSIDE_CAMPUS';
-  if (accuracy > MAX_POSITION_ACCURACY_METERS) return 'POSITION_INACCURATE';
-  if (ageMs > MAX_POSITION_AGE_MS) return 'POSITION_TOO_OLD';
-  return null;
-}
+// Règle de présence partagée avec le navigateur : voir shared/presence.js.
+export {
+  checkDevicePosition,
+  MAX_POSITION_ACCURACY_METERS,
+  MAX_POSITION_AGE_MS,
+  PERIMETER_MARGIN_METERS,
+  POSITION_ERROR_MESSAGES,
+} from '../shared/presence.js';
 
 function cleanTargetId(value) {
   if (typeof value !== 'string' || !value || value.length > MAX_TARGET_ID_LENGTH) {
@@ -93,8 +73,11 @@ export function listProposalPoints({ entityType, action, payload }) {
   return payload.coordinates;
 }
 
-export const isGeometryInsidePerimeter = (points, perimeter) =>
-  points.every((point) => isInsidePerimeter(point, perimeter, PERIMETER_MARGIN_METERS));
+// Le périmètre est préparé une seule fois pour tous les points : un chemin de 5000 points reste rapide à contrôler.
+export function isGeometryInsidePerimeter(points, perimeter) {
+  const isOnCampus = createCampusTest(perimeter);
+  return points.every((point) => isOnCampus(point));
+}
 
 // Publication directe réservée au contributeur de confiance. Un signalement attend toujours un relecteur.
 export const isPublishedDirectly = (contributor, proposal) =>

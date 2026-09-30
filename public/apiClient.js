@@ -16,16 +16,22 @@ export class ApiRequestError extends Error {
 }
 
 export async function callApi(method, path, body) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    credentials: 'same-origin',
-    cache: 'no-cache',
-    headers: {
-      Accept: 'application/json',
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      credentials: 'same-origin',
+      cache: 'no-cache',
+      headers: {
+        Accept: 'application/json',
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    // Réseau coupé ou serveur injoignable : même forme d'erreur qu'un refus de l'API, avec un message clair.
+    throw new ApiRequestError(0, 'NETWORK_ERROR', 'Connexion impossible : vérifiez le réseau et réessayez.');
+  }
   if (response.status === 204) return null;
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
