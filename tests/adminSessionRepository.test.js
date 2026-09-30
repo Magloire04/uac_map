@@ -4,11 +4,9 @@
 
 import assert from 'node:assert/strict';
 import { createSessionDigest, createTokenFingerprint, SESSION_DURATION_MS } from '../server/adminSessions.js';
-import {
-  createAdminSession,
-  deleteAdminSession,
-  findAdminSessionExpiration,
-} from '../server/database/adminSessionRepository.js';
+import { createAdminSession, deleteAdminSession, findAdminSession } from '../server/database/adminSessionRepository.js';
+import { createReviewer, revokeReviewer } from '../server/database/reviewerRepository.js';
+import { ADMIN_ACTOR, reviewerActor } from '../server/actors.js';
 import { createTestPool, databaseAfter, databaseBefore, databaseTest, resetTestDatabase } from './testDatabase.js';
 
 const TOKEN_FINGERPRINT = createTokenFingerprint('jeton-de-test-1234');
@@ -40,15 +38,11 @@ databaseTest('reste valide 12 heures puis expire', async () => {
   await clearSessions();
   const { sessionId, expiresAt } = await createAdminSession(database, TOKEN_FINGERPRINT, OPENED_AT);
   assert.equal(expiresAt.toISOString(), later(SESSION_DURATION_MS).toISOString());
-  const stillValid = await findAdminSessionExpiration(
-    database,
-    sessionId,
-    TOKEN_FINGERPRINT,
-    later(SESSION_DURATION_MS - 1),
-  );
+  const stillValid =
+    (await findAdminSession(database, sessionId, TOKEN_FINGERPRINT, later(SESSION_DURATION_MS - 1)))?.expiresAt ?? null;
   assert.equal(stillValid.toISOString(), expiresAt.toISOString());
   assert.equal(
-    await findAdminSessionExpiration(database, sessionId, TOKEN_FINGERPRINT, later(SESSION_DURATION_MS)),
+    (await findAdminSession(database, sessionId, TOKEN_FINGERPRINT, later(SESSION_DURATION_MS)))?.expiresAt ?? null,
     null,
   );
 });
@@ -57,14 +51,14 @@ databaseTest('refuse une session ouverte avec un autre jeton', async () => {
   await clearSessions();
   const { sessionId } = await createAdminSession(database, TOKEN_FINGERPRINT, OPENED_AT);
   const otherFingerprint = createTokenFingerprint('autre-jeton-de-test-99');
-  assert.equal(await findAdminSessionExpiration(database, sessionId, otherFingerprint, OPENED_AT), null);
+  assert.equal((await findAdminSession(database, sessionId, otherFingerprint, OPENED_AT))?.expiresAt ?? null, null);
 });
 
 databaseTest('supprime la session à la déconnexion', async () => {
   await clearSessions();
   const { sessionId } = await createAdminSession(database, TOKEN_FINGERPRINT, OPENED_AT);
   await deleteAdminSession(database, sessionId);
-  assert.equal(await findAdminSessionExpiration(database, sessionId, TOKEN_FINGERPRINT, OPENED_AT), null);
+  assert.equal((await findAdminSession(database, sessionId, TOKEN_FINGERPRINT, OPENED_AT))?.expiresAt ?? null, null);
 });
 
 databaseTest('efface les sessions expirées à chaque ouverture', async () => {
@@ -76,6 +70,26 @@ databaseTest('efface les sessions expirées à chaque ouverture', async () => {
 });
 
 databaseTest('ignore un identifiant de session vide', async () => {
-  assert.equal(await findAdminSessionExpiration(database, '', TOKEN_FINGERPRINT, OPENED_AT), null);
+  assert.equal((await findAdminSession(database, '', TOKEN_FINGERPRINT, OPENED_AT))?.expiresAt ?? null, null);
   await deleteAdminSession(database, '');
+});
+
+databaseTest('renvoie l’auteur de la session : administrateur ou relecteur actif', async () => {
+  await clearSessions();
+  const adminSession = await createAdminSession(database, TOKEN_FINGERPRINT, OPENED_AT);
+  const foundAdmin = await findAdminSession(database, adminSession.sessionId, TOKEN_FINGERPRINT, OPENED_AT);
+  assert.deepEqual(foundAdmin.actor, ADMIN_ACTOR);
+  assert.equal(foundAdmin.reviewerName, null);
+  const { reviewer } = await createReviewer(database, 'Relectrice', OPENED_AT);
+  const reviewerSession = await createAdminSession(
+    database,
+    createTokenFingerprint('jeton-du-relecteur'),
+    OPENED_AT,
+    reviewerActor(reviewer.id),
+  );
+  const found = await findAdminSession(database, reviewerSession.sessionId, TOKEN_FINGERPRINT, OPENED_AT);
+  assert.deepEqual(found.actor, reviewerActor(reviewer.id));
+  assert.equal(found.reviewerName, 'Relectrice');
+  await revokeReviewer(database, reviewer.id, OPENED_AT);
+  assert.equal(await findAdminSession(database, reviewerSession.sessionId, TOKEN_FINGERPRINT, OPENED_AT), null);
 });

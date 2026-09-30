@@ -6,25 +6,40 @@
 // jeton en vigueur : une copie de la base ne permet pas d'ouvrir une session.
 
 import { createSessionDigest, createSessionId, SESSION_DURATION_MS } from '../adminSessions.js';
+import { ADMIN_ACTOR, reviewerActor } from '../actors.js';
 
-export async function createAdminSession(executor, tokenFingerprint, now = new Date()) {
+export async function createAdminSession(executor, tokenFingerprint, now = new Date(), actor = ADMIN_ACTOR) {
   const sessionId = createSessionId();
   const expiresAt = new Date(now.getTime() + SESSION_DURATION_MS);
   await executor.execute('DELETE FROM admin_sessions WHERE expires_at <= ?', [now]);
   await executor.execute(
-    'INSERT INTO admin_sessions (session_digest, token_fingerprint, expires_at, created_at) VALUES (?, ?, ?, ?)',
-    [createSessionDigest(sessionId), tokenFingerprint, expiresAt, now],
+    'INSERT INTO admin_sessions (session_digest, token_fingerprint, expires_at, created_at, actor_kind, reviewer_id) VALUES (?, ?, ?, ?, ?, ?)',
+    [
+      createSessionDigest(sessionId),
+      tokenFingerprint,
+      expiresAt,
+      now,
+      actor.kind,
+      actor.kind === 'reviewer' ? actor.id : null,
+    ],
   );
   return { sessionId, expiresAt };
 }
 
-export async function findAdminSessionExpiration(executor, sessionId, tokenFingerprint, now = new Date()) {
+// Session valide : non expirée, et ouverte avec le jeton administrateur en vigueur ou par un relecteur encore actif.
+export async function findAdminSession(executor, sessionId, adminTokenFingerprint, now = new Date()) {
   if (!sessionId) return null;
   const [rows] = await executor.execute(
-    'SELECT expires_at FROM admin_sessions WHERE session_digest = ? AND token_fingerprint = ? AND expires_at > ?',
-    [createSessionDigest(sessionId), tokenFingerprint, now],
+    `SELECT s.expires_at, s.actor_kind, s.reviewer_id, r.name AS reviewer_name FROM admin_sessions s
+     LEFT JOIN reviewers r ON r.id = s.reviewer_id
+     WHERE s.session_digest = ? AND s.expires_at > ?
+       AND ((s.actor_kind = 'admin' AND s.token_fingerprint = ?) OR (s.actor_kind = 'reviewer' AND r.is_active = TRUE))`,
+    [createSessionDigest(sessionId), now, adminTokenFingerprint],
   );
-  return rows.length ? rows[0].expires_at : null;
+  if (!rows.length) return null;
+  const [row] = rows;
+  const actor = row.actor_kind === 'reviewer' ? reviewerActor(row.reviewer_id) : ADMIN_ACTOR;
+  return { expiresAt: row.expires_at, actor, reviewerName: row.reviewer_name };
 }
 
 export async function deleteAdminSession(executor, sessionId) {
