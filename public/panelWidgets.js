@@ -9,9 +9,11 @@ import { html } from '/safeHtml.js';
 export const optionTag = (value, label, currentValue) =>
   html`<option value="${value}" ${value === currentValue ? html`selected` : ''}>${label}</option>`;
 
+export const lastPageOf = ({ limit, total }) => Math.max(1, Math.ceil(total / limit));
+
 // Pagination : chaque onglet gère les actions « page-previous » et « page-next ».
 export function renderPager({ page, limit, total }) {
-  const pageCount = Math.max(1, Math.ceil(total / limit));
+  const pageCount = lastPageOf({ limit, total });
   if (pageCount === 1) return '';
   return html`<div class="row">
     <button class="button small" data-action="page-previous" type="button" ${page > 1 ? '' : html`disabled`}>

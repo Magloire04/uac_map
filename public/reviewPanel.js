@@ -22,6 +22,7 @@ export function createReviewPanel(context, { callStaffApi, getStaffSession, onRe
   let currentTabId = 'proposals';
   let pendingCount = 0;
   let counterTimer = null;
+  let isBusy = false;
 
   async function changeContributorStatus(contributorId, status) {
     if (
@@ -65,12 +66,17 @@ export function createReviewPanel(context, { callStaffApi, getStaffSession, onRe
   const visibleTabs = () => tabs.filter((tab) => tab.isVisible?.() ?? true);
   const currentTab = () => tabs.find((tab) => tab.id === currentTabId);
 
+  // Une seule action à la fois : sur le réseau lent du campus, un second appui pendant l'envoi serait refusé (409).
   async function runAction(work) {
+    if (isBusy) return;
+    isBusy = true;
     try {
       await work();
     } catch (error) {
       // Session expirée (401) : callStaffApi a déjà fermé le mode collecte et affiché son message.
       if (error.status !== 401) showToast(error.message, 5000);
+    } finally {
+      isBusy = false;
     }
     render();
   }
@@ -136,6 +142,7 @@ export function createReviewPanel(context, { callStaffApi, getStaffSession, onRe
   function close() {
     if (!isOpen) return;
     isOpen = false;
+    isBusy = false;
     state.hooks.onSheetAction = null;
     state.hooks.onSheetChange = null;
     panel.clearMap();

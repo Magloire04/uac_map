@@ -19,7 +19,7 @@ import {
   formatDateTime,
   summarizeProposal,
 } from '/proposalLabels.js';
-import { optionTag, renderPager } from '/panelWidgets.js';
+import { lastPageOf, optionTag, renderPager } from '/panelWidgets.js';
 
 const PAGE_LIMIT = 20;
 
@@ -39,6 +39,11 @@ export function createProposalsTab(panel) {
     });
     if (filters.entityType) query.set('entity-type', filters.entityType);
     list = await panel.callStaffApi('GET', `/proposals?${query}`);
+    // Page devenue vide (dernier élément traité) : retour à la dernière page qui existe.
+    if (page > lastPageOf(list.meta)) {
+      page = lastPageOf(list.meta);
+      return loadList();
+    }
     detail = null;
     panel.clearMap();
   }
