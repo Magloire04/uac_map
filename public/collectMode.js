@@ -9,6 +9,7 @@ import { getLineLength } from '/shared/geo.js';
 import { formatDistance } from '/shared/instructions.js';
 import { html } from '/safeHtml.js';
 import { callApi } from '/apiClient.js';
+import { createReviewPanel } from '/reviewPanel.js';
 
 const selectElement = (selector) => document.querySelector(selector);
 const placeUrl = (placeId) => `/places/${encodeURIComponent(placeId)}`;
@@ -36,6 +37,13 @@ export function initCollectMode(context, editor) {
     await context.reloadCampusMap();
     return message;
   }
+
+  const reviewPanel = createReviewPanel(context, {
+    callStaffApi,
+    getStaffSession: () => staffSession,
+    onRequestClose: () => editor.selectTool(null),
+    onCountChange: () => editor.updateToolLabels(),
+  });
 
   function renderNetworkSummary() {
     const campusMap = state.campusMap || { places: [], paths: [] };
@@ -76,11 +84,22 @@ export function initCollectMode(context, editor) {
         ? `MODE COLLECTE · relecteur ${staffSession.name}`
         : 'MODE COLLECTE · administrateur';
     },
-    tools: ['place', 'draw', 'walk', 'edit'],
+    tools: ['place', 'draw', 'walk', 'edit', 'review'],
     canManageExisting: true,
     placeDialogTitle: (placeId) => (placeId ? 'Modifier le lieu' : 'Nouveau lieu'),
     renderIdlePanel: () => html`${renderNetworkSummary()}${renderContributionWarnings()}`,
     onPlaceClick: (place) => editor.openPlaceDialog(place),
+    extraTools: {
+      review: {
+        label: () => `À relire (${reviewPanel.getPendingCount()})`,
+        renderPanel: () =>
+          html`<p>Propositions, contributeurs et historique s'affichent dans le panneau de relecture.</p>`,
+        onSelect: () => {
+          reviewPanel.open();
+        },
+        onDeselect: () => reviewPanel.close(),
+      },
+    },
     actions: {
       savePlace: (placeBody, placeId) =>
         placeId
@@ -92,6 +111,8 @@ export function initCollectMode(context, editor) {
       deletePath: (pathId) => writeAndReload('DELETE', pathUrl(pathId), undefined, 'Chemin supprimé'),
     },
     onClose: () => {
+      reviewPanel.stopCounter();
+      reviewPanel.close();
       staffSession = null;
       selectElement('#menu-clear-map').hidden = true;
       selectElement('#menu-logout').hidden = true;
@@ -101,6 +122,7 @@ export function initCollectMode(context, editor) {
   function enterCollectMode(session) {
     staffSession = session;
     editor.open(staffProfile);
+    reviewPanel.startCounter();
     selectElement('#menu-clear-map').hidden = session.role !== 'admin';
     selectElement('#menu-logout').hidden = false;
   }

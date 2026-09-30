@@ -376,6 +376,13 @@ export function createMapEditor(context) {
     });
   });
 
+  // Met à jour le texte des boutons (compteur de la relecture) sans redessiner le panneau : une saisie en cours n'est
+  // pas effacée.
+  function updateToolLabels() {
+    if (!profile) return;
+    for (const button of toolList.querySelectorAll('[data-tool]')) button.textContent = readLabel(button.dataset.tool);
+  }
+
   // ---------- Brouillon affiché sur la carte ----------
 
   function renderDraft() {
@@ -668,5 +675,6 @@ export function createMapEditor(context) {
     openPlaceDialog,
     findPathAt,
     getActiveTool: () => activeTool,
+    updateToolLabels,
   };
 }
