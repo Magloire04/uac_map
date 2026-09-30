@@ -68,6 +68,17 @@ components:
       in: path
       required: true
       schema: { type: string }
+    ProposalId:
+      name: proposalId
+      in: path
+      required: true
+      schema: { type: string }
+    ContributorId:
+      name: contributorId
+      in: path
+      required: true
+      description: Identifiant d'un contributeur (« me » est réservé au téléphone qui appelle).
+      schema: { type: string }
 
   headers:
     RequestId:
@@ -252,10 +263,73 @@ components:
         reviewNote: { type: [string, 'null'] }
         createdAt: { type: string, format: date-time }
         reviewedAt: { type: [string, 'null'], format: date-time }
+    Contributor:
+      type: object
+      description: Contributeur vu par un relecteur, avec son bilan.
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        pseudonym: { type: [string, 'null'] }
+        status: { type: string, enum: [new, trusted, blocked] }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        acceptedCount: { type: integer }
+        rejectedCount: { type: integer }
+        pendingCount: { type: integer }
+    Proposal:
+      type: object
+      description: Proposition vue par un relecteur.
+      properties:
+        id: { type: string }
+        contributorId: { type: [string, 'null'], description: Vide si le contributeur a été supprimé. }
+        contributor:
+          type: [object, 'null']
+          properties:
+            id: { type: string }
+            pseudonym: { type: [string, 'null'] }
+            status: { type: string, enum: [new, trusted, blocked] }
+        entityType: { type: string, enum: [place, path] }
+        action: { type: string, enum: [create, update, report] }
+        targetId: { type: [string, 'null'] }
+        targetUpdatedAt: { type: [string, 'null'], format: date-time }
+        payload: { type: object }
+        positionAccuracyMeters: { type: number }
+        status: { type: string, enum: [pending, accepted, rejected, withdrawn] }
+        reviewerKind: { type: [string, 'null'], description: admin ou reviewer ; vide si publiée directement. }
+        reviewerId: { type: [string, 'null'] }
+        reviewNote: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        reviewedAt: { type: [string, 'null'], format: date-time }
+    ProposalDetail:
+      allOf:
+        - $ref: '#/components/schemas/Proposal'
+        - type: object
+          properties:
+            contributor:
+              oneOf:
+                - $ref: '#/components/schemas/Contributor'
+                - type: 'null'
+            target: { type: [object, 'null'], description: Version actuelle du lieu ou du chemin visé. }
+            hasConflict: { type: boolean, description: Vrai si la cible a changé ou disparu depuis l'envoi. }
+    MapChange:
+      type: object
+      properties:
+        id: { type: integer }
+        entityType: { type: string, enum: [place, path, map] }
+        entityId: { type: [string, 'null'] }
+        action: { type: string, enum: [create, update, delete, revert, bulk] }
+        beforeState: { type: [object, 'null'] }
+        afterState: { type: [object, 'null'] }
+        actorKind: { type: string, enum: [admin, reviewer, contributor, command] }
+        actorId: { type: [string, 'null'] }
+        actorName: { type: [string, 'null'], description: Nom du relecteur ou pseudo du contributeur. }
+        proposalId: { type: [string, 'null'] }
+        revertsChangeId: { type: [integer, 'null'] }
+        createdAt: { type: string, format: date-time }
 
   responses:
     BadRequest:
-      description: Données invalides (codes VALIDATION_ERROR, INVALID_JSON, INVALID_PAGE, INVALID_LIMIT, INVALID_SORT, INVALID_ORDER, INVALID_CATEGORY, INVALID_PATH_TYPE, INVALID_FORMAT, CONFIRMATION_REQUIRED).
+      description: Données invalides (codes VALIDATION_ERROR, INVALID_JSON, INVALID_PAGE, INVALID_LIMIT, INVALID_SORT, INVALID_ORDER, INVALID_CATEGORY, INVALID_PATH_TYPE, INVALID_FORMAT, CONFIRMATION_REQUIRED, INVALID_STATUS, INVALID_ENTITY_TYPE, INVALID_CONTRIBUTOR_ID, INVALID_ENTITY_ID).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -265,7 +339,12 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     NotFound:
-      description: Ressource inexistante (PLACE_NOT_FOUND, PATH_NOT_FOUND, ROUTE_NOT_FOUND, NO_PUBLIC_LINK, LINK_NOT_FOUND, TARGET_NOT_FOUND).
+      description: Ressource inexistante (PLACE_NOT_FOUND, PATH_NOT_FOUND, ROUTE_NOT_FOUND, NO_PUBLIC_LINK, LINK_NOT_FOUND, TARGET_NOT_FOUND, PROPOSAL_NOT_FOUND, CONTRIBUTOR_NOT_FOUND, CHANGE_NOT_FOUND).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Proposition déjà traitée (PROPOSAL_ALREADY_REVIEWED), élément modifié depuis (CHANGE_OUTDATED) ou opération en masse (CHANGE_NOT_REVERTIBLE).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -607,6 +686,29 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
   /contributors:
+    get:
+      tags: [Relecture]
+      summary: Liste des contributeurs, avec leur bilan
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [new, trusted, blocked] }
+      responses:
+        '200':
+          description: Page de contributeurs, du plus récent au plus ancien
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Contributor' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [Contribution]
       summary: Rejoindre la contribution par un lien
@@ -707,6 +809,36 @@ paths:
         '401': { $ref: '#/components/responses/NotAContributor' }
 
   /proposals:
+    get:
+      tags: [Relecture]
+      summary: File des propositions
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Order' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, accepted, rejected, withdrawn] }
+        - name: entity-type
+          in: query
+          schema: { type: string, enum: [place, path] }
+        - name: contributor-id
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Page de propositions, de la plus ancienne à la plus récente par défaut
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Proposal' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [Contribution]
       summary: Envoyer une proposition
@@ -734,3 +866,121 @@ paths:
         '422': { $ref: '#/components/responses/PresenceNotVerified' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/Unavailable' }
+
+  /proposals/{proposalId}:
+    parameters: [{ $ref: '#/components/parameters/ProposalId' }, { $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Relecture]
+      summary: Détail d'une proposition, version actuelle de la cible et conflit éventuel
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      responses:
+        '200':
+          description: Proposition
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/ProposalDetail' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Relecture]
+      summary: Accepter (publier) ou refuser une proposition
+      description: Accepter un signalement le marque comme traité, sans modifier la carte.
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [accepted, rejected] }
+                note: { type: string, maxLength: 300, description: Montrée au contributeur. }
+      responses:
+        '200':
+          description: Proposition traitée
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Proposal' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /contributors/{contributorId}:
+    parameters: [{ $ref: '#/components/parameters/ContributorId' }, { $ref: '#/components/parameters/RequestId' }]
+    patch:
+      tags: [Relecture]
+      summary: Accorder ou retirer la confiance, bloquer un téléphone
+      description: Bloquer refuse aussitôt tout ce que le téléphone a en attente.
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [new, trusted, blocked] }
+      responses:
+        '200':
+          description: Contributeur modifié
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Contributor' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /map-changes:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Relecture]
+      summary: Historique des modifications, de la plus récente à la plus ancienne
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - name: entity-type
+          in: query
+          schema: { type: string, enum: [place, path, map] }
+        - name: entity-id
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Page de l'historique
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/MapChange' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Relecture]
+      summary: Annuler une modification
+      description: L'élément retrouve son état d'avant. Refusé s'il a changé depuis (annuler d'abord les modifications plus récentes) ou pour une opération en masse.
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revertsChangeId]
+              properties:
+                revertsChangeId: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: Annulation inscrite à l'historique
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/MapChange' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }

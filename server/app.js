@@ -33,6 +33,7 @@ import {
   writeCookie,
 } from './http.js';
 import { createContributionRoutes } from './contributionRoutes.js';
+import { createReviewRoutes } from './reviewRoutes.js';
 import { createEntity, deleteEntity, updateEntity } from './mapEditing.js';
 import { cleanPlace, cleanPath, ValidationError } from '../shared/validate.js';
 import { PLACE_CATEGORIES } from '../shared/search.js';
@@ -381,6 +382,7 @@ export function createApp({
   // ---------- Contribution ouverte ----------
 
   api.use(createContributionRoutes({ database, publicUrl, getNow, getClientDigest: staffAccess.getClientDigest }));
+  api.use(createReviewRoutes({ database, getNow, requireStaff }));
 
   api.use((_request, response) => sendError(response, 404, 'ROUTE_NOT_FOUND', 'Route inconnue'));
 
