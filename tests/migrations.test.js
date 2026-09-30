@@ -20,11 +20,18 @@ import {
 const EXPECTED_TABLES = [
   'admin_sessions',
   'campus_settings',
+  'contribution_links',
+  'contributors',
   'failed_login_attempts',
+  'map_changes',
   'paths',
   'places',
+  'proposals',
+  'rate_limits',
+  'reviewers',
   'schema_migrations',
 ];
+const ALL_MIGRATIONS = ['001-initial-schema.sql', '002-contribution-ouverte.sql'];
 let database;
 
 databaseBefore(() => {
@@ -62,8 +69,8 @@ test('ne retient que les fichiers de migration numérotés, dans l’ordre', () 
 
 databaseTest('crée toutes les tables sur une base vide', async () => {
   await dropAllTestTables();
-  assert.deepEqual(await getPendingMigrations(database), ['001-initial-schema.sql']);
-  assert.deepEqual(await applyPendingMigrations(testDatabaseConfiguration), ['001-initial-schema.sql']);
+  assert.deepEqual(await getPendingMigrations(database), ALL_MIGRATIONS);
+  assert.deepEqual(await applyPendingMigrations(testDatabaseConfiguration), ALL_MIGRATIONS);
   assert.deepEqual(await listTables(), EXPECTED_TABLES);
   assert.deepEqual(await getPendingMigrations(database), []);
 });
@@ -80,9 +87,9 @@ databaseTest('deux lancements simultanés appliquent chaque migration une seule 
     applyPendingMigrations(testDatabaseConfiguration),
     applyPendingMigrations(testDatabaseConfiguration),
   ]);
-  assert.deepEqual(results.flat(), ['001-initial-schema.sql']);
+  assert.deepEqual(results.flat(), ALL_MIGRATIONS);
   const [rows] = await database.query('SELECT COUNT(*) AS total FROM schema_migrations');
-  assert.equal(Number(rows[0].total), 1);
+  assert.equal(Number(rows[0].total), ALL_MIGRATIONS.length);
 });
 
 databaseTest('nomme le fichier en cause et ne l’inscrit pas quand une migration échoue', () =>
@@ -93,3 +100,27 @@ databaseTest('nomme le fichier en cause et ne l’inscrit pas quand une migratio
     assert.deepEqual(await getPendingMigrations(database, directory), ['001-cassee.sql']);
   }),
 );
+
+async function listColumns(tableName) {
+  const [rows] = await database.query(
+    'SELECT column_name AS columnName FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position',
+    [tableName],
+  );
+  return rows.map((row) => row.columnName);
+}
+
+databaseTest('complète les réglages et les sessions pour la contribution', async () => {
+  await dropAllTestTables();
+  await applyPendingMigrations(testDatabaseConfiguration);
+  assert.ok((await listColumns('campus_settings')).includes('perimeter'));
+  assert.ok((await listColumns('campus_settings')).includes('contributions_paused'));
+  assert.ok((await listColumns('admin_sessions')).includes('actor_kind'));
+  assert.ok((await listColumns('admin_sessions')).includes('reviewer_id'));
+});
+
+databaseTest('relance la migration 002 sans erreur', async () => {
+  await dropAllTestTables();
+  await applyPendingMigrations(testDatabaseConfiguration);
+  await database.query("DELETE FROM schema_migrations WHERE version = '002-contribution-ouverte.sql'");
+  assert.deepEqual(await applyPendingMigrations(testDatabaseConfiguration), ['002-contribution-ouverte.sql']);
+});
