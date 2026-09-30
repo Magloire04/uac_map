@@ -3,7 +3,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import express from 'express';
-import QRCode from 'qrcode';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -35,6 +34,7 @@ import {
 import { createContributionRoutes } from './contributionRoutes.js';
 import { createAdministrationRoutes } from './administrationRoutes.js';
 import { createReviewRoutes } from './reviewRoutes.js';
+import { sendQrCode } from './qrCode.js';
 import { createEntity, deleteEntity, updateEntity } from './mapEditing.js';
 import { cleanPlace, cleanPath, ValidationError } from '../shared/validate.js';
 import { PLACE_CATEGORIES } from '../shared/search.js';
@@ -306,8 +306,7 @@ export function createApp({
       const place = await findPlace(database, request.params.placeId);
       if (!place) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
       const targetUrl = `${readBaseUrl(request, publicUrl)}/?ici=${encodeURIComponent(place.id)}`;
-      const svg = await QRCode.toString(targetUrl, { type: 'svg', errorCorrectionLevel: 'M', margin: 2 });
-      response.type('image/svg+xml').set('Cache-Control', 'no-cache').send(svg);
+      await sendQrCode(response, targetUrl);
     }),
   );
 

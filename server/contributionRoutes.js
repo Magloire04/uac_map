@@ -9,6 +9,7 @@ import express from 'express';
 import { createHash } from 'node:crypto';
 import { readCookie } from './adminSessions.js';
 import { contributorActor } from './actors.js';
+import { sendQrCode } from './qrCode.js';
 import {
   checkDevicePosition,
   cleanProposal,
@@ -81,13 +82,27 @@ export function createContributionRoutes({ database, publicUrl, getNow, getClien
     next();
   });
 
+  const findPublicLinkOrThrow = async () => {
+    const link = await findPublicContributionLink(database);
+    if (!link) throw new ApiError(404, 'NO_PUBLIC_LINK', 'Aucun lien de contribution public');
+    return link;
+  };
+
   router.get(
     '/contribution/public-link',
     asyncRoute(async (request, response) => {
-      const link = await findPublicContributionLink(database);
-      if (!link) throw new ApiError(404, 'NO_PUBLIC_LINK', 'Aucun lien de contribution public');
+      const link = await findPublicLinkOrThrow();
       response.set('Cache-Control', 'no-cache');
       response.json({ data: { code: link.id, url: buildContributionUrl(readBaseUrl(request, publicUrl), link.id) } });
+    }),
+  );
+
+  // QR code du lien public, à imprimer et à poser sur le campus.
+  router.get(
+    '/contribution/public-link/qr-code',
+    asyncRoute(async (request, response) => {
+      const link = await findPublicLinkOrThrow();
+      await sendQrCode(response, buildContributionUrl(readBaseUrl(request, publicUrl), link.id));
     }),
   );
 

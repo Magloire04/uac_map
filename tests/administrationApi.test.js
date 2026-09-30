@@ -83,6 +83,7 @@ databaseTest('gère les liens : un seul public, fermeture, réouverture', async 
   );
   assert.deepEqual([closed.isActive, closed.isPublic], [false, false]);
   assert.equal((await callApi('/contribution/public-link')).status, 404);
+  assert.equal((await callApi('/contribution/public-link/qr-code')).status, 404);
   assert.equal((await callApi('/contributors', { method: 'POST', body: { linkCode: second.id } })).status, 410);
   const closedAndPublic = await adminCall(`/contribution-links/${second.id}`, {
     method: 'PATCH',
