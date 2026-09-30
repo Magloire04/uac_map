@@ -6,7 +6,7 @@
 
 import { html } from '/safeHtml.js';
 import { CONTRIBUTOR_STATUS_LABELS, formatDateTime } from '/proposalLabels.js';
-import { lastPageOf, optionTag, renderPager } from '/panelWidgets.js';
+import { contributorStatusButton, lastPageOf, optionTag, renderPager } from '/panelWidgets.js';
 
 const PAGE_LIMIT = 20;
 
@@ -26,25 +26,14 @@ export function createContributorsTab(panel) {
     }
   }
 
-  const statusButton = (contributor, status, label, extraClass = '') =>
-    html`<button
-      class="button small${extraClass}"
-      data-action="contributor-status"
-      data-contributor-id="${contributor.id}"
-      data-status="${status}"
-      type="button"
-    >
-      ${label}
-    </button>`;
-
   function renderActions(contributor) {
-    if (contributor.status === 'blocked') return statusButton(contributor, 'new', 'Débloquer');
+    if (contributor.status === 'blocked') return contributorStatusButton(contributor, 'new', 'Débloquer');
     return html`${
       contributor.status === 'trusted'
-        ? statusButton(contributor, 'new', 'Retirer la confiance')
-        : statusButton(contributor, 'trusted', 'Faire confiance')
+        ? contributorStatusButton(contributor, 'new', 'Retirer la confiance')
+        : contributorStatusButton(contributor, 'trusted', 'Faire confiance')
     }
-    ${statusButton(contributor, 'blocked', 'Bloquer', ' danger')}`;
+    ${contributorStatusButton(contributor, 'blocked', 'Bloquer', ' danger')}`;
   }
 
   function render() {

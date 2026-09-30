@@ -11,6 +11,18 @@ export const optionTag = (value, label, currentValue) =>
 
 export const lastPageOf = ({ limit, total }) => Math.max(1, Math.ceil(total / limit));
 
+// Bouton de changement de statut d'un contributeur (confiance, blocage, déblocage), commun aux onglets.
+export const contributorStatusButton = (contributor, status, label, extraClass = '') =>
+  html`<button
+    class="button small${extraClass}"
+    data-action="contributor-status"
+    data-contributor-id="${contributor.id}"
+    data-status="${status}"
+    type="button"
+  >
+    ${label}
+  </button>`;
+
 // Pagination : chaque onglet gère les actions « page-previous » et « page-next ».
 export function renderPager({ page, limit, total }) {
   const pageCount = lastPageOf({ limit, total });

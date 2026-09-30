@@ -19,7 +19,7 @@ import {
   formatDateTime,
   summarizeProposal,
 } from '/proposalLabels.js';
-import { lastPageOf, optionTag, renderPager } from '/panelWidgets.js';
+import { contributorStatusButton, lastPageOf, optionTag, renderPager } from '/panelWidgets.js';
 
 const PAGE_LIMIT = 20;
 
@@ -184,17 +184,6 @@ export function createProposalsTab(panel) {
       : html`<p class="warning">L'élément visé a été supprimé depuis l'envoi.</p>`;
   }
 
-  const statusButton = (contributor, status, label, extraClass = '') =>
-    html`<button
-      class="button small${extraClass}"
-      data-action="contributor-status"
-      data-contributor-id="${contributor.id}"
-      data-status="${status}"
-      type="button"
-    >
-      ${label}
-    </button>`;
-
   function renderContributor(contributor) {
     if (!contributor) return html`<p class="note">Contributeur supprimé.</p>`;
     const actions =
@@ -202,10 +191,10 @@ export function createProposalsTab(panel) {
         ? ''
         : html`${
             contributor.status === 'trusted'
-              ? statusButton(contributor, 'new', 'Retirer la confiance')
-              : statusButton(contributor, 'trusted', 'Faire confiance')
+              ? contributorStatusButton(contributor, 'new', 'Retirer la confiance')
+              : contributorStatusButton(contributor, 'trusted', 'Faire confiance')
           }
-          ${statusButton(contributor, 'blocked', 'Bloquer ce téléphone', ' danger')}`;
+          ${contributorStatusButton(contributor, 'blocked', 'Bloquer ce téléphone', ' danger')}`;
     return html`<p class="note">
         Contributeur : <strong>${contributor.pseudonym || 'sans pseudo'}</strong> ·
         ${CONTRIBUTOR_STATUS_LABELS[contributor.status]} · ${contributor.acceptedCount} acceptée(s),
