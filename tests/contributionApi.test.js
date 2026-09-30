@@ -156,6 +156,33 @@ databaseTest('montre, renomme puis oublie un téléphone', async () => {
   assert.deepEqual([rows[0].status, rows[0].contributor_id], ['withdrawn', null]);
 });
 
+databaseTest('renouvelle le cookie du contributeur à chaque visite et à chaque nouvelle inscription', async () => {
+  const joined = await callApi('/contributors', { method: 'POST', body: { linkCode: publicLink.id } });
+  const sentCookie = joined.headers.get('set-cookie').split(';')[0];
+  const visit = await callApi('/contributors/me', { cookie: sentCookie });
+  const renewed = visit.headers.get('set-cookie');
+  assert.equal(renewed.split(';')[0], sentCookie);
+  assert.ok(renewed.includes('Max-Age=15552000'));
+  const again = await callApi('/contributors', {
+    method: 'POST',
+    body: { linkCode: publicLink.id },
+    cookie: sentCookie,
+  });
+  assert.equal(again.status, 200);
+  const againCookie = again.headers.get('set-cookie');
+  assert.equal(againCookie.split(';')[0], sentCookie);
+  assert.ok(againCookie.includes('Max-Age=15552000'));
+});
+
+databaseTest('modifier un téléphone sans préciser de pseudo garde le pseudo', async () => {
+  const phone = await joinAsPhone('Kossi');
+  const kept = await phone.call('/contributors/me', { method: 'PATCH', body: {} });
+  assert.equal(kept.status, 200);
+  assert.equal((await kept.json()).data.pseudonym, 'Kossi');
+  const cleared = await phone.call('/contributors/me', { method: 'PATCH', body: { pseudonym: '' } });
+  assert.equal((await cleared.json()).data.pseudonym, null);
+});
+
 databaseTest(
   'un nouveau contributeur propose un lieu, qui attend une relecture hors de la carte publique',
   async () => {

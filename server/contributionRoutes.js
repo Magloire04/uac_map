@@ -25,6 +25,7 @@ import { findContributionLink, findPublicContributionLink } from './database/con
 import {
   createContributor,
   deleteContributor,
+  findContributor,
   findContributorByDeviceSecret,
   touchContributor,
   updateContributorPseudonym,
@@ -63,13 +64,19 @@ export function createContributionRoutes({ database, publicUrl, getNow, getClien
   const reserveLimit = (limit, subjectDigest) => reserveRateLimit(database, limit.kind, subjectDigest, limit, getNow());
   const tooManyRequests = () => new ApiError(429, 'TOO_MANY_REQUESTS', 'Trop d’envois : réessayez dans une heure');
 
-  // Chaque appel d'un contributeur reconnu met à jour sa dernière visite, qui sert à la purge.
+  // Chaque appel d'un contributeur reconnu met à jour sa dernière visite, qui sert à la purge, et renouvelle son
+  // cookie pour la durée pleine : un contributeur actif ne redevient jamais inconnu.
   const requireContributor = asyncRoute(async (request, response, next) => {
-    const contributor = await findContributorByDeviceSecret(database, readCookie(request, CONTRIBUTOR_COOKIE_NAME));
+    const deviceSecret = readCookie(request, CONTRIBUTOR_COOKIE_NAME);
+    const contributor = await findContributorByDeviceSecret(database, deviceSecret);
     if (!contributor) {
       return sendError(response, 401, 'NOT_A_CONTRIBUTOR', 'Ce téléphone n’a pas rejoint la contribution');
     }
     await touchContributor(database, contributor.id, getNow());
+    // « Oublier ce téléphone » efface le cookie lui-même : deux Set-Cookie se contrediraient.
+    if (request.method !== 'DELETE') {
+      writeCookie(request, response, CONTRIBUTOR_COOKIE_NAME, deviceSecret, CONTRIBUTOR_COOKIE_MAX_AGE_MS);
+    }
     request.contributor = contributor;
     next();
   });
@@ -90,9 +97,11 @@ export function createContributionRoutes({ database, publicUrl, getNow, getClien
     '/contributors',
     asyncRoute(async (request, response) => {
       const now = getNow();
-      const existing = await findContributorByDeviceSecret(database, readCookie(request, CONTRIBUTOR_COOKIE_NAME));
+      const deviceSecret = readCookie(request, CONTRIBUTOR_COOKIE_NAME);
+      const existing = await findContributorByDeviceSecret(database, deviceSecret);
       if (existing) {
         await touchContributor(database, existing.id, now);
+        writeCookie(request, response, CONTRIBUTOR_COOKIE_NAME, deviceSecret, CONTRIBUTOR_COOKIE_MAX_AGE_MS);
         return response.json({ data: toOwnContributor(existing) });
       }
       const body = request.body ?? {};
@@ -103,8 +112,9 @@ export function createContributionRoutes({ database, publicUrl, getNow, getClien
       if (!(await reserveLimit(RATE_LIMITS.contributorPerConnection, getClientDigest(request)))) {
         throw tooManyRequests();
       }
-      const { contributor, deviceSecret } = await createContributor(database, { linkId: link.id, pseudonym }, now);
-      writeCookie(request, response, CONTRIBUTOR_COOKIE_NAME, deviceSecret, CONTRIBUTOR_COOKIE_MAX_AGE_MS);
+      const created = await createContributor(database, { linkId: link.id, pseudonym }, now);
+      const { contributor } = created;
+      writeCookie(request, response, CONTRIBUTOR_COOKIE_NAME, created.deviceSecret, CONTRIBUTOR_COOKIE_MAX_AGE_MS);
       logSecurityEvent('contributor_joined', {
         requestId: request.requestId,
         contributorId: contributor.id,
@@ -122,7 +132,11 @@ export function createContributionRoutes({ database, publicUrl, getNow, getClien
     '/contributors/me',
     requireContributor,
     asyncRoute(async (request, response) => {
-      const pseudonym = cleanPseudonym(request.body?.pseudonym);
+      const body = request.body ?? {};
+      // Sans champ « pseudonym », le pseudo actuel est gardé ; un champ vide le retire.
+      const pseudonym = Object.hasOwn(body, 'pseudonym')
+        ? cleanPseudonym(body.pseudonym)
+        : request.contributor.pseudonym;
       const contributor = await updateContributorPseudonym(database, request.contributor.id, pseudonym);
       response.json({ data: toOwnContributor(contributor) });
     }),
@@ -192,9 +206,17 @@ export function createContributionRoutes({ database, publicUrl, getNow, getClien
       if (proposal.targetId && !targetUpdatedAt) {
         throw new ApiError(404, 'TARGET_NOT_FOUND', 'L’élément visé n’existe pas');
       }
-      const isDirect = isPublishedDirectly(contributor, proposal);
       const now = getNow();
-      const saved = await withTransaction(database, async (connection) => {
+      const { saved, isDirect } = await withTransaction(database, async (connection) => {
+        // Le statut lu au début peut être périmé : un relecteur a pu bloquer le téléphone ou retirer sa confiance
+        // pendant les contrôles. La ligne est relue verrouillée, comme le fait le changement de statut, pour que
+        // l'un des deux passe avant l'autre.
+        const current = await findContributor(connection, contributor.id, { isLocking: true });
+        if (!current) throw new ApiError(401, 'NOT_A_CONTRIBUTOR', 'Ce téléphone n’a pas rejoint la contribution');
+        if (current.status === 'blocked') {
+          throw new ApiError(403, 'CONTRIBUTOR_BLOCKED', 'Ce téléphone ne peut plus proposer de modification');
+        }
+        const isPublishedNow = isPublishedDirectly(current, proposal);
         const inserted = await insertProposal(
           connection,
           {
@@ -202,12 +224,12 @@ export function createContributionRoutes({ database, publicUrl, getNow, getClien
             contributorId: contributor.id,
             targetUpdatedAt,
             positionAccuracyMeters: devicePosition.accuracy,
-            status: isDirect ? 'accepted' : 'pending',
+            status: isPublishedNow ? 'accepted' : 'pending',
           },
           now,
         );
-        if (isDirect) await publishProposal(connection, inserted, contributorActor(contributor.id), now);
-        return inserted;
+        if (isPublishedNow) await publishProposal(connection, inserted, contributorActor(contributor.id), now);
+        return { saved: inserted, isDirect: isPublishedNow };
       });
       logSecurityEvent(isDirect ? 'proposal_published_directly' : 'proposal_submitted', {
         requestId: request.requestId,

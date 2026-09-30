@@ -796,7 +796,12 @@ paths:
             schema:
               type: object
               properties:
-                pseudonym: { type: string, maxLength: 40, description: Vide pour retirer le pseudo. }
+                pseudonym:
+                  {
+                    type: string,
+                    maxLength: 40,
+                    description: 'Vide pour retirer le pseudo ; absent, il ne change pas.',
+                  }
       responses:
         '200':
           description: Contributeur modifié

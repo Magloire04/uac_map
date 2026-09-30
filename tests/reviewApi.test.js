@@ -265,6 +265,27 @@ databaseTest('bloquer un téléphone refuse ses propositions en attente et ses e
   assert.equal(invalid.status, 400);
 });
 
+databaseTest('un blocage pendant un envoi ne laisse aucune proposition en attente', async () => {
+  for (let round = 0; round < 10; round += 1) {
+    const phone = await joinAsPhone();
+    const [sent, blocked] = await Promise.all([
+      phone.call('/proposals', {
+        method: 'POST',
+        body: { ...newPlace(`Envoi concurrent ${round}`), devicePosition: onCampus() },
+      }),
+      reviewerCall(`/contributors/${phone.contributor.id}`, { method: 'PATCH', body: { status: 'blocked' } }),
+    ]);
+    assert.equal(blocked.status, 200);
+    if (sent.status === 403) assert.equal((await sent.json()).error.code, 'CONTRIBUTOR_BLOCKED');
+    else assert.equal(sent.status, 201);
+    const [rows] = await database.execute(
+      "SELECT COUNT(*) AS total FROM proposals WHERE contributor_id = ? AND `status` = 'pending'",
+      [phone.contributor.id],
+    );
+    assert.equal(Number(rows[0].total), 0, `tour ${round}`);
+  }
+});
+
 databaseTest('accorder la confiance permet de publier directement', async () => {
   const phone = await joinAsPhone();
   await reviewerCall(`/contributors/${phone.contributor.id}`, { method: 'PATCH', body: { status: 'trusted' } });
