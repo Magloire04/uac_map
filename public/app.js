@@ -51,7 +51,7 @@ const state = {
   navigation: { isActive: false, offRouteCount: 0, isFollowing: true, hasArrived: false },
   mode: null,
   isSatellite: false,
-  hooks: { onMapClick: null, onPlaceClick: null, onSheetAction: null },
+  hooks: { onMapClick: null, onPlaceClick: null, onSheetAction: null, onSheetChange: null },
   lastMarkerClickTime: 0,
   hasCentered: false,
 };
@@ -107,10 +107,26 @@ const widthByZoom = (minimum, maximum) => [
 ];
 
 function addMapLayers() {
-  for (const sourceId of ['paths', 'route', 'user', 'origin', 'entrances', 'draft', 'own-proposals']) {
+  for (const sourceId of [
+    'paths',
+    'route',
+    'user',
+    'origin',
+    'entrances',
+    'draft',
+    'own-proposals',
+    'perimeter',
+    'review',
+  ]) {
     map.addSource(sourceId, { type: 'geojson', data: EMPTY_COLLECTION });
   }
   const roundLine = { 'line-cap': 'round', 'line-join': 'round' };
+  map.addLayer({
+    id: 'perimeter-line',
+    type: 'line',
+    source: 'perimeter',
+    paint: { 'line-color': '#1c1917', 'line-width': 2, 'line-dasharray': [4, 2], 'line-opacity': 0.7 },
+  });
   map.addLayer({
     id: 'paths-casing',
     type: 'line',
@@ -232,6 +248,22 @@ function addMapLayers() {
     filter: ['==', ['geometry-type'], 'Point'],
     paint: { 'circle-radius': 8, 'circle-color': '#2563eb', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 },
   });
+  const reviewColor = ['match', ['get', 'role'], 'current', '#78716c', 'reported', '#dc2626', '#7c3aed'];
+  map.addLayer({
+    id: 'review-line',
+    type: 'line',
+    source: 'review',
+    filter: ['==', ['geometry-type'], 'LineString'],
+    layout: roundLine,
+    paint: { 'line-color': reviewColor, 'line-width': 5, 'line-opacity': 0.9 },
+  });
+  map.addLayer({
+    id: 'review-points',
+    type: 'circle',
+    source: 'review',
+    filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': 8, 'circle-color': reviewColor, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
+  });
 }
 
 const setSourceData = (sourceId, geoJson) => map.getSource(sourceId)?.setData(geoJson);
@@ -281,14 +313,14 @@ function closeSheet() {
   document.body.classList.remove('has-open-sheet');
 }
 
-const sheetHeader = (title, subtitle, closeLabel = 'Fermer') => html`
+const sheetHeader = (title, subtitle, closeLabel = 'Fermer', closeAction = 'close') => html`
   <div class="sheet-handle"></div>
   <div class="sheet-header">
     <div>
       <h2>${title}</h2>
       ${subtitle ? html`<p class="category-label">${subtitle}</p>` : ''}
     </div>
-    <button class="icon-button" data-action="close" aria-label="${closeLabel}">${CLOSE_ICON}</button>
+    <button class="icon-button" data-action="${closeAction}" aria-label="${closeLabel}">${CLOSE_ICON}</button>
   </div>
 `;
 
@@ -324,6 +356,7 @@ function applyCampusMap(campusMap) {
   if (state.selectedPlace) state.selectedPlace = findPlaceById(state.selectedPlace.id);
   if (state.destination) state.destination = findPlaceById(state.destination.id);
   renderEntrances();
+  renderPerimeter();
   document.dispatchEvent(new CustomEvent('campus-map-loaded'));
 }
 
@@ -370,6 +403,13 @@ function renderEntrances() {
   }
   const place = state.destination || state.selectedPlace;
   setSourceData('entrances', toFeatureCollection(place ? toEntranceFeatures(place) : []));
+}
+
+// Contour du campus, montré dans les modes d'édition : c'est la limite des contributions.
+function renderPerimeter() {
+  const isEditing = state.mode === 'collect' || state.mode === 'contribution';
+  const perimeter = isEditing ? state.campusMap?.settings?.perimeter : null;
+  setSourceData('perimeter', toFeatureCollection(perimeter ? [toLineFeature(perimeter)] : []));
 }
 
 // ---------- Recherche ----------
@@ -871,7 +911,10 @@ selectElement('#sheet').addEventListener('click', (event) => {
 
 selectElement('#sheet').addEventListener('change', (event) => {
   const option = event.target.dataset.option;
-  if (!option) return;
+  if (!option) {
+    state.hooks.onSheetChange?.(event);
+    return;
+  }
   state.routeOptions[option] = event.target.checked;
   computeRoute({ shouldFitBounds: false });
 });
@@ -945,6 +988,7 @@ map.on('load', async () => {
     showToast,
     reloadCampusMap: loadCampusMap,
     renderEntrances,
+    renderPerimeter,
     toggleSatellite,
     startGps,
     stopGpsIfUnused,
@@ -956,6 +1000,7 @@ map.on('load', async () => {
     openSheet,
     closeSheet,
     sheetHeader,
+    fitCoordinates: fitRoute,
   };
   const editor = createMapEditor(editingContext);
   initCollectMode(editingContext, editor);

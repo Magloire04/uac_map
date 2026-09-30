@@ -93,6 +93,7 @@ export function createMapEditor(context) {
     collectBar.dataset.mode = profile.mode;
     context.toggleSatellite(true);
     context.renderEntrances();
+    context.renderPerimeter();
     render();
   }
 
@@ -114,6 +115,7 @@ export function createMapEditor(context) {
     selectElement('#collect-bar').hidden = true;
     setSourceData('draft', toFeatureCollection([]));
     context.renderEntrances();
+    context.renderPerimeter();
     closedProfile.onClose?.();
   }
 
@@ -373,6 +375,13 @@ export function createMapEditor(context) {
       render();
     });
   });
+
+  // Met à jour le texte des boutons (compteur de la relecture) sans redessiner le panneau : une saisie en cours n'est
+  // pas effacée.
+  function updateToolLabels() {
+    if (!profile) return;
+    for (const button of toolList.querySelectorAll('[data-tool]')) button.textContent = readLabel(button.dataset.tool);
+  }
 
   // ---------- Brouillon affiché sur la carte ----------
 
@@ -666,5 +675,6 @@ export function createMapEditor(context) {
     openPlaceDialog,
     findPathAt,
     getActiveTool: () => activeTool,
+    updateToolLabels,
   };
 }

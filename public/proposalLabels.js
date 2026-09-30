@@ -27,3 +27,4 @@ export function summarizeProposal({ entityType, action, payload }) {
 
 export const formatDateTime = (isoDate) =>
   new Date(isoDate).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+export const CONTRIBUTOR_STATUS_LABELS = { new: 'Nouveau', trusted: 'De confiance', blocked: 'Bloqué' };

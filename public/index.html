@@ -101,7 +101,8 @@
           <input id="token-input" type="password" autocomplete="current-password" required />
         </label>
         <p class="note">
-          Le jeton se trouve dans le fichier data/.admin-token du serveur (ou la variable ADMIN_TOKEN).
+          Administrateur : le jeton ADMIN_TOKEN (en local, le fichier data/.admin-token). Relecteur : le jeton personnel
+          remis par l'administrateur.
         </p>
         <p class="error-message" id="login-error"></p>
         <div class="actions">
@@ -160,6 +161,19 @@
           <button class="button" type="button" data-close-dialog>Annuler</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="token-dialog">
+      <h3>Jeton du relecteur</h3>
+      <p>
+        Transmettez ce jeton à <strong id="token-reviewer-name"></strong> par un canal sûr. Il ne sera plus jamais
+        affiché : en cas de perte, révoquez ce relecteur et créez-en un autre.
+      </p>
+      <input id="token-value" class="token-value" readonly aria-label="Jeton du relecteur" />
+      <div class="actions">
+        <button class="button primary" id="token-copy" type="button">Copier</button>
+        <button class="button" type="button" data-close-dialog>J'ai transmis le jeton</button>
+      </div>
     </dialog>
 
     <dialog id="place-dialog">
