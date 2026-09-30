@@ -8,8 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { logSecurityEvent, logError } from './securityLog.js';
-import { SESSION_COOKIE_NAME, SESSION_DURATION_MS, isSameSecret, readCookie } from './adminSessions.js';
-import { createStaffAccess } from './access.js';
+import { SESSION_COOKIE_NAME, SESSION_DURATION_MS, readCookie } from './adminSessions.js';
+import { createStaffAccess, toSessionView } from './access.js';
 import { withTransaction } from './database/connection.js';
 import { createAdminSession, deleteAdminSession } from './database/adminSessionRepository.js';
 import { clearFailedAttempts, reserveLoginAttempt } from './database/failedLoginAttemptRepository.js';
@@ -33,6 +33,7 @@ import {
   writeCookie,
 } from './http.js';
 import { createContributionRoutes } from './contributionRoutes.js';
+import { createReviewRoutes } from './reviewRoutes.js';
 import { createEntity, deleteEntity, updateEntity } from './mapEditing.js';
 import { cleanPlace, cleanPath, ValidationError } from '../shared/validate.js';
 import { PLACE_CATEGORIES } from '../shared/search.js';
@@ -129,7 +130,7 @@ export function createApp({
     throw new Error(`ADMIN_TOKEN trop court (${MIN_ADMIN_TOKEN_LENGTH} caractères minimum)`);
   }
   const staffAccess = createStaffAccess({ database, adminToken, getNow });
-  const { requireStaff } = staffAccess;
+  const { requireStaff, requireAdministrator } = staffAccess;
 
   const app = express();
   app.disable('x-powered-by');
@@ -154,15 +155,22 @@ export function createApp({
         logSecurityEvent('admin_login_blocked', { requestId: request.requestId }, 'warn');
         return sendError(response, 429, 'TOO_MANY_ATTEMPTS', 'Trop de tentatives, réessayez dans 15 minutes');
       }
-      if (!isSameSecret(request.body?.token, staffAccess.tokenDigest)) {
+      const identity = await staffAccess.identifyToken(request.body?.token);
+      if (!identity) {
         logSecurityEvent('admin_login_failed', { requestId: request.requestId }, 'warn');
         return sendError(response, 401, 'INVALID_TOKEN', "Jeton d'accès incorrect");
       }
-      await clearFailedAttempts(database, clientDigest);
-      const { sessionId, expiresAt } = await createAdminSession(database, staffAccess.tokenFingerprint, now);
+      // Seule une connexion administrateur remet le compteur à zéro : il protège aussi ADMIN_TOKEN.
+      if (identity.actor.kind === 'admin') await clearFailedAttempts(database, clientDigest);
+      const { sessionId, expiresAt } = await createAdminSession(
+        database,
+        identity.tokenFingerprint,
+        now,
+        identity.actor,
+      );
       writeCookie(request, response, SESSION_COOKIE_NAME, sessionId, SESSION_DURATION_MS);
-      logSecurityEvent('admin_login_succeeded', { requestId: request.requestId });
-      response.status(201).json({ data: { expiresAt: expiresAt.toISOString() } });
+      logSecurityEvent('admin_login_succeeded', { requestId: request.requestId, role: identity.actor.kind });
+      response.status(201).json({ data: toSessionView({ expiresAt, ...identity }) });
     }),
   );
 
@@ -171,7 +179,7 @@ export function createApp({
     asyncRoute(async (request, response) => {
       const session = await staffAccess.findSession(request);
       if (!session) return sendError(response, 401, 'UNAUTHORIZED', 'Aucune session active');
-      response.json({ data: { expiresAt: session.expiresAt.toISOString() } });
+      response.json({ data: toSessionView(session) });
     }),
   );
 
@@ -206,7 +214,7 @@ export function createApp({
 
   api.delete(
     '/campus-map',
-    requireStaff,
+    requireAdministrator,
     asyncRoute(async (request, response) => {
       if (request.query.confirm !== 'true') {
         throw new ApiError(400, 'CONFIRMATION_REQUIRED', 'Ajoutez ?confirm=true pour vider la carte');
@@ -374,6 +382,7 @@ export function createApp({
   // ---------- Contribution ouverte ----------
 
   api.use(createContributionRoutes({ database, publicUrl, getNow, getClientDigest: staffAccess.getClientDigest }));
+  api.use(createReviewRoutes({ database, getNow, requireStaff }));
 
   api.use((_request, response) => sendError(response, 404, 'ROUTE_NOT_FOUND', 'Route inconnue'));
 

@@ -68,3 +68,30 @@ export async function deleteEntity(connection, entityType, entityId, { actor }, 
   await recordMapChange(connection, { entityType, entityId, action: 'delete', beforeState: before, actor }, now);
   return true;
 }
+
+// Remet un élément dans un état de l'historique (null : il ne doit plus exister) et inscrit une ligne « revert ».
+// Renvoie l'identifiant de cette ligne.
+export async function restoreEntity(
+  connection,
+  entityType,
+  entityId,
+  state,
+  { actor, revertsChangeId },
+  now = new Date(),
+) {
+  const store = ENTITY_STORES[entityType];
+  const before = await store.find(connection, entityId, { isLocking: true });
+  if (state === null) {
+    if (before) await store.remove(connection, entityId, now);
+  } else if (before) {
+    const { id, ...fields } = state;
+    await store.replace(connection, id, fields, now);
+  } else {
+    await store.insert(connection, state, now);
+  }
+  return recordMapChange(
+    connection,
+    { entityType, entityId, action: 'revert', beforeState: before, afterState: state, actor, revertsChangeId },
+    now,
+  );
+}
