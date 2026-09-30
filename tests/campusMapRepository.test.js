@@ -24,7 +24,7 @@ import {
   rewriteCampusMap,
   setContributionsPaused,
   setPerimeter,
-  updatePathAttributes,
+  replacePath,
 } from '../server/database/campusMapRepository.js';
 import { listMapChanges } from '../server/database/mapChangeRepository.js';
 import { offsetPosition } from './helpers.js';
@@ -166,20 +166,17 @@ databaseTest('relit un chemin de 5000 points à l’identique', async () => {
   assert.deepEqual(await findPath(database, path.id), path);
 });
 
-databaseTest('modifie le type, le nom et le caractère inondable sans toucher au tracé', async () => {
+databaseTest('remplace un chemin, tracé compris, et ignore un identifiant inconnu', async () => {
   await emptyTheMap();
   const path = buildPath();
   await insertPath(database, path);
-  const updated = await updatePathAttributes(database, path.id, {
-    type: 'stairs',
-    name: 'Escaliers',
-    isFloodProne: true,
-  });
-  assert.deepEqual(updated, { ...path, type: 'stairs', name: 'Escaliers', isFloodProne: true });
-  assert.equal(
-    await updatePathAttributes(database, 'path_inconnu', { type: 'road', name: '', isFloodProne: false }),
-    null,
-  );
+  const { id, ...fields } = path;
+  const coordinates = [offsetPosition(1, 1), offsetPosition(40, 20), offsetPosition(60, 25)];
+  const changes = { type: 'stairs', name: 'Escaliers', isFloodProne: true, coordinates };
+  const replaced = await replacePath(database, id, { ...fields, ...changes });
+  assert.deepEqual(replaced, { ...path, ...changes });
+  assert.deepEqual(await findPath(database, id), replaced);
+  assert.equal(await replacePath(database, 'path_inconnu', fields), null);
 });
 
 databaseTest('filtre les chemins par type et les trie par identifiant', async () => {
