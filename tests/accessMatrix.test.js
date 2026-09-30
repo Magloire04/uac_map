@@ -48,7 +48,7 @@ const ROUTES = [
   // Doit rester en dernier : l'appel du contributeur supprime le contributeur de test.
   ['DELETE', '/contributors/me', 'contributor'],
 ];
-const isAllowed = (status) => status !== 401 && status !== 403;
+const isAllowed = (status) => status !== 401 && status !== 403 && status < 500;
 const isUnauthorized = (status) => status === 401;
 const EXPECTED = {
   public: { anonymous: isAllowed, contributor: isAllowed, reviewer: isAllowed, admin: isAllowed },

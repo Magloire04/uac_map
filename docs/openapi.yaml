@@ -320,7 +320,11 @@ components:
                 - $ref: '#/components/schemas/Contributor'
                 - type: 'null'
             target: { type: [object, 'null'], description: Version actuelle du lieu ou du chemin visé. }
-            hasConflict: { type: boolean, description: Vrai si la cible a changé ou disparu depuis l'envoi. }
+            hasConflict:
+              {
+                type: boolean,
+                description: "Vrai si la cible a changé ou disparu depuis l'envoi, pour une proposition en attente.",
+              }
     MapChange:
       type: object
       properties:
