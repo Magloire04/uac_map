@@ -4,7 +4,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getDistance, simplifyLine, locateOnLine, isInsidePerimeter, isValidPerimeter } from '../shared/geo.js';
+import {
+  createPerimeterTest,
+  getDistance,
+  simplifyLine,
+  locateOnLine,
+  isInsidePerimeter,
+  isValidPerimeter,
+} from '../shared/geo.js';
 import { offsetPosition, createSquarePerimeter } from './helpers.js';
 
 test('simplifie une trace GPS en zigzag en une ligne droite', () => {
@@ -62,4 +69,23 @@ test('un périmètre absent, trop court, ouvert ou mal formé ne contient rien',
     false,
   );
   assert.equal(isValidPerimeter('carré'), false);
+});
+
+test('un périmètre préparé répond comme isInsidePerimeter et refuse une position mal formée', () => {
+  const isOnCampus = createPerimeterTest(square, 50);
+  for (const offsets of [
+    [0, 0],
+    [140, 0],
+    [0, -170],
+    [130, 130],
+    [140, 140],
+  ]) {
+    const position = offsetPosition(...offsets);
+    assert.equal(isOnCampus(position), isInsidePerimeter(position, square, 50), String(offsets));
+  }
+  for (const position of [null, undefined, 'ici', [2.34], [Number.NaN, 6.41], ['2.34', '6.41'], [2.34, 95]]) {
+    assert.equal(isOnCampus(position), false, String(position));
+  }
+  assert.equal(isInsidePerimeter(null, square, 50), false);
+  assert.equal(createPerimeterTest(null, 50)(offsetPosition(0, 0)), false);
 });
