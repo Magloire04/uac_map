@@ -18,6 +18,9 @@ tags:
   - name: Chemins
   - name: Session
   - name: Supervision
+  - name: Contribution
+  - name: Relecture
+  - name: Administration
 
 components:
   securitySchemes:
@@ -30,6 +33,11 @@ components:
       type: http
       scheme: bearer
       description: Jeton ADMIN_TOKEN, réservé aux scripts et à l'intégration continue.
+    contributorCookie:
+      type: apiKey
+      in: cookie
+      name: uac_contributor
+      description: Cookie httpOnly posé par POST /contributors, valable 180 jours. Identifie un téléphone contributeur.
 
   parameters:
     RequestId:
@@ -198,6 +206,50 @@ components:
           type: object
           properties:
             expiresAt: { type: string, format: date-time }
+    DevicePosition:
+      type: object
+      required: [longitude, latitude, accuracy, ageMs]
+      description: Position du téléphone au moment de l'envoi. Seule sa précision est conservée.
+      properties:
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        accuracy: { type: number, minimum: 0, maximum: 50, description: Précision annoncée, en mètres. }
+        ageMs: { type: number, maximum: 120000, description: Âge de la position selon l'horloge du téléphone. }
+    ProposalInput:
+      type: object
+      required: [entityType, action, payload, devicePosition]
+      properties:
+        entityType: { type: string, enum: [place, path] }
+        action: { type: string, enum: [create, update, report], description: update est réservé aux lieux. }
+        targetId: { type: string, maxLength: 64, description: Obligatoire pour update et report. }
+        payload:
+          oneOf:
+            - $ref: '#/components/schemas/PlaceInput'
+            - $ref: '#/components/schemas/PathInput'
+            - type: object
+              required: [message]
+              properties:
+                message: { type: string, maxLength: 500 }
+        devicePosition: { $ref: '#/components/schemas/DevicePosition' }
+    OwnContributor:
+      type: object
+      properties:
+        id: { type: string }
+        pseudonym: { type: [string, 'null'], maxLength: 40 }
+        status: { type: string, enum: [new, trusted, blocked] }
+        createdAt: { type: string, format: date-time }
+    OwnProposal:
+      type: object
+      properties:
+        id: { type: string }
+        entityType: { type: string, enum: [place, path] }
+        action: { type: string, enum: [create, update, report] }
+        targetId: { type: [string, 'null'] }
+        payload: { type: object }
+        status: { type: string, enum: [pending, accepted, rejected, withdrawn] }
+        reviewNote: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        reviewedAt: { type: [string, 'null'], format: date-time }
 
   responses:
     BadRequest:
@@ -211,12 +263,37 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     NotFound:
-      description: Ressource inexistante (PLACE_NOT_FOUND, PATH_NOT_FOUND, ROUTE_NOT_FOUND).
+      description: Ressource inexistante (PLACE_NOT_FOUND, PATH_NOT_FOUND, ROUTE_NOT_FOUND, NO_PUBLIC_LINK, LINK_NOT_FOUND, TARGET_NOT_FOUND).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     TooManyAttempts:
       description: Trop d'échecs d'authentification (TOO_MANY_ATTEMPTS), réessayer après 15 minutes.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Trop d'envois dans l'heure (TOO_MANY_REQUESTS).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotAContributor:
+      description: Ce téléphone n'a pas rejoint la contribution (NOT_A_CONTRIBUTOR).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Téléphone bloqué (CONTRIBUTOR_BLOCKED), ou action réservée à l'administrateur (FORBIDDEN).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PresenceNotVerified:
+      description: Présence sur le campus non vérifiée (POSITION_REQUIRED, OUTSIDE_CAMPUS, POSITION_INACCURATE, POSITION_TOO_OLD, GEOMETRY_OUTSIDE_CAMPUS).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Contributions suspendues (CONTRIBUTIONS_PAUSED) ou périmètre du campus non configuré (PERIMETER_NOT_CONFIGURED).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -505,3 +582,152 @@ paths:
       summary: Fermer la session
       responses:
         '204': { $ref: '#/components/responses/NoContent' }
+
+  /contribution/public-link:
+    get:
+      tags: [Contribution]
+      summary: Lien de contribution public, affiché sur le site
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      responses:
+        '200':
+          description: Lien public actif
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      code: { type: string }
+                      url: { type: string, description: 'PUBLIC_URL/?contribuer=code' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /contributors:
+    post:
+      tags: [Contribution]
+      summary: Rejoindre la contribution par un lien
+      description: Dépose le cookie uac_contributor. Un téléphone déjà inscrit reçoit son contributeur existant (200), quel que soit le lien.
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [linkCode]
+              properties:
+                linkCode: { type: string }
+                pseudonym: { type: string, maxLength: 40 }
+      responses:
+        '200':
+          description: Téléphone déjà inscrit
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnContributor' } } }
+        '201':
+          description: Contributeur créé (en-tête Set-Cookie)
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnContributor' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: Lien fermé (LINK_CLOSED)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /contributors/me:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Contribution]
+      summary: Mon téléphone contributeur
+      security: [{ contributorCookie: [] }]
+      responses:
+        '200':
+          description: Statut, pseudo et date d'inscription
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnContributor' } } }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+    patch:
+      tags: [Contribution]
+      summary: Changer de pseudo
+      security: [{ contributorCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pseudonym: { type: string, maxLength: 40, description: Vide pour retirer le pseudo. }
+      responses:
+        '200':
+          description: Contributeur modifié
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnContributor' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+    delete:
+      tags: [Contribution]
+      summary: Oublier ce téléphone
+      description: Supprime le contributeur et son cookie, retire ses propositions en attente. Ce qui a été publié reste, attribué à « contributeur supprimé ».
+      security: [{ contributorCookie: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+
+  /contributors/me/proposals:
+    get:
+      tags: [Contribution]
+      summary: Mes propositions, de la plus récente à la plus ancienne
+      security: [{ contributorCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page de propositions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/OwnProposal' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+
+  /proposals:
+    post:
+      tags: [Contribution]
+      summary: Envoyer une proposition
+      description: |
+        Contributeur « nouveau » : la proposition attend une relecture (pending). Contributeur « de confiance » :
+        elle est publiée aussitôt (accepted), sauf un signalement, toujours relu. La position du téléphone est
+        vérifiée à chaque envoi ; seule sa précision est conservée.
+      security: [{ contributorCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProposalInput' }
+      responses:
+        '201':
+          description: Proposition enregistrée
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnProposal' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/PresenceNotVerified' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Unavailable' }
