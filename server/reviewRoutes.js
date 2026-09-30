@@ -76,7 +76,9 @@ export function createReviewRoutes({ database, getNow, requireStaff }) {
       const { entityType, targetId } = proposal;
       const target = targetId ? await findEntity(database, entityType, targetId) : null;
       const targetVersion = targetId ? await readEntityVersion(database, entityType, targetId) : null;
-      const hasConflict = Boolean(targetId) && targetVersion?.toISOString() !== proposal.targetUpdatedAt;
+      // Seule une proposition en attente peut être en conflit : l'acceptation modifie elle-même la cible.
+      const hasConflict =
+        proposal.status === 'pending' && Boolean(targetId) && targetVersion?.toISOString() !== proposal.targetUpdatedAt;
       const contributor = proposal.contributorId
         ? await findContributorWithCounts(database, proposal.contributorId)
         : null;

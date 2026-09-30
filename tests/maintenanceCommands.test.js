@@ -10,7 +10,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createEmptyCampusMap } from '../server/campusMapDefaults.js';
-import { insertPlace, readCampusMap, rewriteCampusMap } from '../server/database/campusMapRepository.js';
+import {
+  insertPlace,
+  readCampusMap,
+  rewriteCampusMap,
+  readSettings,
+  setPerimeter,
+} from '../server/database/campusMapRepository.js';
+import { UAC_BOUNDARY_WAY_ID } from '../server/openStreetMapImport.js';
+import { createContributionLink } from '../server/database/contributionLinkRepository.js';
+import { createContributor, findContributorWithCounts } from '../server/database/contributorRepository.js';
+import { listMapChanges } from '../server/database/mapChangeRepository.js';
 import {
   createTestPool,
   databaseAfter,
@@ -144,4 +154,80 @@ databaseTest('les commandes refusent un schéma en retard', async () => {
   assert.equal(result.code, 1);
   assert.match(result.stderr, /npm run database:migrate/);
   await resetTestDatabase();
+});
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const BOUNDARY_GEOMETRY = [
+  { lon: 2.33, lat: 6.41 },
+  { lon: 2.35, lat: 6.41 },
+  { lon: 2.35, lat: 6.42 },
+  { lon: 2.33, lat: 6.42 },
+  { lon: 2.33, lat: 6.41 },
+];
+const boundaryResponse = (geometry) => ({
+  elements: [{ type: 'way', id: UAC_BOUNDARY_WAY_ID, tags: { name: 'UAC' }, geometry }],
+});
+
+async function withOverpassFile(overpassResponse, work) {
+  const directory = await mkdtemp(join(tmpdir(), 'uac-perimetre-'));
+  try {
+    const inputFile = join(directory, 'overpass.json');
+    await writeFile(inputFile, JSON.stringify(overpassResponse));
+    return await work(inputFile);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+databaseTest('import-perimeter enregistre le contour du campus sans toucher aux lieux', async () => {
+  await startWithOneRealPlace();
+  await database.execute('DELETE FROM map_changes');
+  await withOverpassFile(boundaryResponse(BOUNDARY_GEOMETRY), async (inputFile) => {
+    const result = await runCommand('importPerimeter.js', ['--fichier', inputFile]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /5 points/);
+  });
+  assert.deepEqual(
+    (await readSettings(database)).perimeter,
+    BOUNDARY_GEOMETRY.map(({ lon, lat }) => [lon, lat]),
+  );
+  assert.equal((await readCampusMap(database)).places.length, 1);
+  const { items } = await listMapChanges(database, { page: 1, limit: 20 });
+  assert.deepEqual(
+    items.map((change) => [change.entityType, change.action, change.actorKind]),
+    [['map', 'bulk', 'command']],
+  );
+});
+
+databaseTest('import-perimeter refuse un contour absent ou ouvert', async () => {
+  await startWithOneRealPlace();
+  await setPerimeter(database, null);
+  for (const overpassResponse of [{ elements: [] }, boundaryResponse(BOUNDARY_GEOMETRY.slice(0, 4))]) {
+    await withOverpassFile(overpassResponse, async (inputFile) => {
+      const result = await runCommand('importPerimeter.js', ['--fichier', inputFile]);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /Contour du campus/);
+    });
+  }
+  assert.equal((await readSettings(database)).perimeter, null);
+});
+
+databaseTest('purge-contributors supprime les contributeurs inactifs depuis 12 mois', async () => {
+  await startWithOneRealPlace();
+  const link = await createContributionLink(database, { label: 'Purge' });
+  const { contributor: former } = await createContributor(
+    database,
+    { linkId: link.id },
+    new Date(Date.now() - 400 * DAY_MS),
+  );
+  const { contributor: recent } = await createContributor(
+    database,
+    { linkId: link.id },
+    new Date(Date.now() - 300 * DAY_MS),
+  );
+  const result = await runCommand('purgeContributors.js');
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /1 contributeur/);
+  assert.equal(await findContributorWithCounts(database, former.id), null);
+  assert.ok(await findContributorWithCounts(database, recent.id));
 });

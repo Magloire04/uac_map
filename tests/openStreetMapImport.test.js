@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { convertOverpassResponse, UAC_BOUNDARY_WAY_ID } from '../server/openStreetMapImport.js';
+import { convertOverpassResponse, extractPerimeter, UAC_BOUNDARY_WAY_ID } from '../server/openStreetMapImport.js';
 
 const overpassResponse = {
   elements: [
@@ -64,4 +64,21 @@ test('rattache une entrée au bâtiment qui la contient', () => {
 
 test('calcule le centre du campus à partir de son contour', () => {
   assert.ok(converted.center);
+});
+
+test('extrait le contour fermé du campus', () => {
+  assert.deepEqual(extractPerimeter(overpassResponse), [
+    [2.33, 6.41],
+    [2.35, 6.41],
+    [2.35, 6.42],
+    [2.33, 6.41],
+  ]);
+});
+
+test('ne renvoie pas de contour absent ou ouvert', () => {
+  assert.equal(extractPerimeter({ elements: [] }), null);
+  assert.equal(extractPerimeter(null), null);
+  const [boundary] = overpassResponse.elements;
+  const openRing = { elements: [{ ...boundary, geometry: boundary.geometry.slice(0, 3) }] };
+  assert.equal(extractPerimeter(openRing), null);
 });

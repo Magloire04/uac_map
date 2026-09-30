@@ -5,7 +5,7 @@
 // Conversion d'une réponse Overpass (OpenStreetMap) vers le format de l'appli.
 // Données © contributeurs OpenStreetMap, licence ODbL : une carte importée hérite de cette licence.
 
-import { getDistance } from '../shared/geo.js';
+import { getDistance, isValidPerimeter } from '../shared/geo.js';
 
 export const UAC_BOUNDARY_WAY_ID = 347214829; // contour de l'université dans OpenStreetMap
 const ENTRANCE_ATTACH_METERS = 40;
@@ -19,6 +19,10 @@ way(${UAC_BOUNDARY_WAY_ID})->.boundary;
   nwr["name"](area.campus);
   node["entrance"](area.campus);
 );
+out geom;`;
+
+export const PERIMETER_QUERY = `[out:json][timeout:60];
+way(${UAC_BOUNDARY_WAY_ID});
 out geom;`;
 
 const PATH_TYPE_BY_HIGHWAY = {
@@ -151,4 +155,15 @@ export function convertOverpassResponse(overpassResponse) {
     center,
     counts: { paths: paths.length, places: places.length, entrances: attachedEntranceCount },
   };
+}
+
+// Contour du campus ([[longitude, latitude], …], fermé) tiré d'une réponse Overpass, ou null s'il manque ou
+// n'est pas un polygone fermé d'au moins 4 points.
+export function extractPerimeter(overpassResponse) {
+  const boundary = (overpassResponse?.elements || []).find(
+    (element) => element.type === 'way' && element.id === UAC_BOUNDARY_WAY_ID,
+  );
+  if (!boundary?.geometry?.length) return null;
+  const perimeter = boundary.geometry.map((vertex) => [roundCoordinate(vertex.lon), roundCoordinate(vertex.lat)]);
+  return isValidPerimeter(perimeter) ? perimeter : null;
 }

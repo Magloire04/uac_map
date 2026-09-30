@@ -205,6 +205,8 @@ databaseTest('accepter une correction malgré un conflit, signalé au relecteur'
   assert.deepEqual([detail.hasConflict, detail.target.access], [true, 'Rez-de-chaussée']);
   assert.equal((await accept(correction.id)).status, 200);
   assert.equal((await findPlace(database, target.id)).name, 'Rectorat de l’UAC');
+  const reviewed = await readData(await reviewerCall(`/proposals/${correction.id}`));
+  assert.deepEqual([reviewed.status, reviewed.hasConflict], ['accepted', false]);
 });
 
 databaseTest('une proposition dont la cible a disparu reste en attente', async () => {
@@ -265,6 +267,27 @@ databaseTest('bloquer un téléphone refuse ses propositions en attente et ses e
   assert.equal(invalid.status, 400);
 });
 
+databaseTest('un blocage pendant un envoi ne laisse aucune proposition en attente', async () => {
+  for (let round = 0; round < 10; round += 1) {
+    const phone = await joinAsPhone();
+    const [sent, blocked] = await Promise.all([
+      phone.call('/proposals', {
+        method: 'POST',
+        body: { ...newPlace(`Envoi concurrent ${round}`), devicePosition: onCampus() },
+      }),
+      reviewerCall(`/contributors/${phone.contributor.id}`, { method: 'PATCH', body: { status: 'blocked' } }),
+    ]);
+    assert.equal(blocked.status, 200);
+    if (sent.status === 403) assert.equal((await sent.json()).error.code, 'CONTRIBUTOR_BLOCKED');
+    else assert.equal(sent.status, 201);
+    const [rows] = await database.execute(
+      "SELECT COUNT(*) AS total FROM proposals WHERE contributor_id = ? AND `status` = 'pending'",
+      [phone.contributor.id],
+    );
+    assert.equal(Number(rows[0].total), 0, `tour ${round}`);
+  }
+});
+
 databaseTest('accorder la confiance permet de publier directement', async () => {
   const phone = await joinAsPhone();
   await reviewerCall(`/contributors/${phone.contributor.id}`, { method: 'PATCH', body: { status: 'trusted' } });
@@ -307,6 +330,36 @@ databaseTest('annule pas à pas, de la modification la plus récente à la plus 
   assert.equal((await revert(creation)).status, 201);
   assert.equal(await findPlace(database, place.id), null);
   assert.equal((await revert(latestUpdate)).status, 409);
+});
+
+databaseTest('annuler la suppression d’un lieu le remet à l’identique', async () => {
+  const [longitude, latitude] = offsetPosition(90, -70);
+  const created = await adminCall('/places', {
+    method: 'POST',
+    body: { name: 'Salle des actes', category: 'administration', aliases: ['Actes'], longitude, latitude },
+  });
+  const place = await readData(created);
+  assert.equal((await adminCall(`/places/${place.id}`, { method: 'DELETE' })).status, 204);
+  assert.equal(await findPlace(database, place.id), null);
+  const [deletion] = await readData(await reviewerCall(`/map-changes?entity-type=place&entity-id=${place.id}`));
+  assert.equal(deletion.action, 'delete');
+  const reverted = await reviewerCall('/map-changes', { method: 'POST', body: { revertsChangeId: deletion.id } });
+  assert.equal(reverted.status, 201);
+  assert.deepEqual(await findPlace(database, place.id), place);
+});
+
+databaseTest('annuler la modification d’un chemin remet son nom d’avant, tracé inchangé', async () => {
+  const coordinates = [offsetPosition(0, 100), offsetPosition(30, 100)];
+  const created = await adminCall('/paths', { method: 'POST', body: { name: 'Allée des flamboyants', coordinates } });
+  const path = await readData(created);
+  const renamed = await adminCall(`/paths/${path.id}`, { method: 'PATCH', body: { name: 'Allée du Doyen' } });
+  assert.equal((await readData(renamed)).name, 'Allée du Doyen');
+  const [change] = await readData(await reviewerCall(`/map-changes?entity-type=path&entity-id=${path.id}`));
+  assert.equal(change.action, 'update');
+  const reverted = await reviewerCall('/map-changes', { method: 'POST', body: { revertsChangeId: change.id } });
+  assert.equal(reverted.status, 201);
+  const restored = await readData(await callApi(`/paths/${path.id}`));
+  assert.deepEqual([restored.name, restored.coordinates], [path.name, path.coordinates]);
 });
 
 databaseTest('refuse d’annuler une opération en masse, une modification inconnue ou mal désignée', async () => {
