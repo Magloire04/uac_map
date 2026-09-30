@@ -10,6 +10,7 @@ import { getDistance, locateOnLine, createCirclePolygon, getLineLength } from '/
 import { html } from '/safeHtml.js';
 import { callApi } from '/apiClient.js';
 import { initCollectMode } from '/collectMode.js';
+import { createMapEditor } from '/mapEditor.js';
 
 const DEFAULT_CENTER = [2.341985, 6.416091];
 const MIN_ORIGIN_ACCURACY_METERS = 80;
@@ -912,7 +913,7 @@ map.on('load', async () => {
   addMapLayers();
   await loadCampusMap();
   applyUrlParameters();
-  initCollectMode({
+  const editingContext = {
     map,
     state,
     showToast,
@@ -926,7 +927,9 @@ map.on('load', async () => {
     toFeatureCollection,
     toLineFeature,
     toPointFeature,
-  });
+  };
+  const editor = createMapEditor(editingContext);
+  initCollectMode(editingContext, editor);
 });
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
