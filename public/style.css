@@ -530,6 +530,20 @@ body.has-open-sheet .floating-buttons {
   background: var(--color-surface);
 }
 
+/* Contribution ouverte */
+.collect-bar[data-mode='contribution'] {
+  border-color: #7c3aed;
+}
+.collect-bar[data-mode='contribution'] .collect-title {
+  color: #6d28d9;
+}
+.rule-list {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 /* Boîtes de dialogue */
 dialog {
   border: 0;

@@ -79,6 +79,7 @@
     <dialog id="menu-dialog">
       <h3>Carte UAC</h3>
       <div class="menu-list">
+        <button class="button primary" id="menu-contribute" type="button" hidden>Contribuer à la carte</button>
         <button class="button" id="menu-collect" type="button">Mode collecte (équipe carto)</button>
         <a class="button" href="/qr.html" target="_blank" rel="noopener">Imprimer les QR codes « Vous êtes ici »</a>
         <a class="button" href="/api/v1/campus-map?format=geojson">Exporter la carte (GeoJSON)</a>
@@ -105,6 +106,35 @@
         <p class="error-message" id="login-error"></p>
         <div class="actions">
           <button class="button primary" type="submit">Entrer</button>
+          <button class="button" type="button" data-close-dialog>Annuler</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="join-dialog">
+      <form id="join-form" method="dialog">
+        <h3>Contribuer à la carte</h3>
+        <p>Proposez des lieux, des corrections et des chemins, sans créer de compte.</p>
+        <ul class="rule-list">
+          <li>
+            Il faut être <strong>sur le campus</strong> : votre position est vérifiée à chaque envoi, sans être
+            enregistrée.
+          </li>
+          <li>N'écrivez <strong>aucune donnée personnelle</strong> (nom, téléphone…) dans vos propositions.</li>
+          <li>Chaque proposition est <strong>relue</strong> avant d'apparaître sur la carte.</li>
+        </ul>
+        <p class="note">
+          Conservés : un identifiant aléatoire propre à ce téléphone (dans un cookie), le pseudo facultatif, vos
+          propositions et la précision de votre position. Tout est supprimé après 12 mois sans activité, ou tout de
+          suite avec « Oublier ce téléphone » dans Mes propositions.
+        </p>
+        <label class="field"
+          ><span>Pseudo <small>(facultatif, visible des relecteurs seulement)</small></span
+          ><input name="pseudonym" maxlength="40" autocomplete="off"
+        /></label>
+        <p class="error-message" id="join-error"></p>
+        <div class="actions">
+          <button class="button primary" type="submit">Rejoindre</button>
           <button class="button" type="button" data-close-dialog>Annuler</button>
         </div>
       </form>

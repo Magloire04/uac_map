@@ -11,6 +11,7 @@ import { html } from '/safeHtml.js';
 import { callApi } from '/apiClient.js';
 import { initCollectMode } from '/collectMode.js';
 import { createMapEditor } from '/mapEditor.js';
+import { initContributionMode } from '/contributionMode.js';
 
 const DEFAULT_CENTER = [2.341985, 6.416091];
 const MIN_ORIGIN_ACCURACY_METERS = 80;
@@ -50,7 +51,7 @@ const state = {
   navigation: { isActive: false, offRouteCount: 0, isFollowing: true, hasArrived: false },
   mode: null,
   isSatellite: false,
-  hooks: { onMapClick: null, onPlaceClick: null },
+  hooks: { onMapClick: null, onPlaceClick: null, onSheetAction: null },
   lastMarkerClickTime: 0,
   hasCentered: false,
 };
@@ -343,7 +344,7 @@ function highlightSelectedMarker() {
 function renderEntrances() {
   const toEntranceFeatures = (place) =>
     place.entrances.map((entrance) => toPointFeature([entrance.longitude, entrance.latitude]));
-  if (state.mode === 'collect') {
+  if (state.mode === 'collect' || state.mode === 'contribution') {
     setSourceData('entrances', toFeatureCollection(state.campusMap.places.flatMap(toEntranceFeatures)));
     return;
   }
@@ -839,9 +840,13 @@ const sheetActions = {
   },
 };
 
+// Les actions du panneau que app.js ne connaît pas (mode contribution, relecture) passent par le crochet du mode actif.
 selectElement('#sheet').addEventListener('click', (event) => {
   const actionButton = event.target.closest('[data-action]');
-  if (actionButton) sheetActions[actionButton.dataset.action]?.();
+  if (!actionButton) return;
+  const actionName = actionButton.dataset.action;
+  if (Object.hasOwn(sheetActions, actionName)) sheetActions[actionName]();
+  else state.hooks.onSheetAction?.(actionName, actionButton);
 });
 
 selectElement('#sheet').addEventListener('change', (event) => {
@@ -912,6 +917,7 @@ function applyUrlParameters() {
 map.on('load', async () => {
   addMapLayers();
   await loadCampusMap();
+  const contributionLinkCode = new URLSearchParams(location.search).get('contribuer');
   applyUrlParameters();
   const editingContext = {
     map,
@@ -927,9 +933,17 @@ map.on('load', async () => {
     toFeatureCollection,
     toLineFeature,
     toPointFeature,
+    openSheet,
+    closeSheet,
+    sheetHeader,
   };
   const editor = createMapEditor(editingContext);
   initCollectMode(editingContext, editor);
+  const contribution = initContributionMode(editingContext, editor);
+  if (contributionLinkCode) {
+    history.replaceState(null, '', '/');
+    contribution.startFromLink(contributionLinkCode);
+  }
 });
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
