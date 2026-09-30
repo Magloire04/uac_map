@@ -7,7 +7,7 @@
 // « de confiance ». La présence est vérifiée ici avant d'ouvrir les outils, puis par le serveur à chaque envoi :
 // seul ce second contrôle fait foi. Les outils eux-mêmes sont dans mapEditor.js.
 
-import { checkDevicePosition, MAX_POSITION_ACCURACY_METERS } from '/shared/presence.js';
+import { checkDevicePosition, MAX_POSITION_ACCURACY_METERS, MAX_POSITION_AGE_MS } from '/shared/presence.js';
 import { html } from '/safeHtml.js';
 import { callApi } from '/apiClient.js';
 
@@ -16,12 +16,15 @@ import { callApi } from '/apiClient.js';
 const CONTRIBUTOR_FLAG_KEY = 'uac-map:contributeur';
 // Une position reçue il y a moins de 30 secondes part telle quelle ; sinon on en demande une nouvelle.
 const FRESH_POSITION_MS = 30 * 1000;
+// Repli si la nouvelle lecture échoue : le serveur accepte une position de 2 minutes, on garde 30 secondes pour la requête.
+const FALLBACK_POSITION_MS = MAX_POSITION_AGE_MS - 30 * 1000;
 const PRESENCE_MESSAGES = {
   WAITING: 'Recherche de votre position… Autorisez la localisation si le téléphone la demande.',
   POSITION_REQUIRED: 'Position indisponible : autorisez la localisation dans les réglages du navigateur.',
   OUTSIDE_CAMPUS:
     'Vous semblez hors du campus : les propositions ne sont possibles que sur place. Rapprochez-vous, ou attendez un meilleur signal.',
   POSITION_INACCURATE: `Signal GPS trop imprécis (${MAX_POSITION_ACCURACY_METERS} m au plus) : sortez à découvert ou patientez.`,
+  POSITION_NOT_FOUND: 'Position introuvable pour le moment : faites quelques pas à découvert, puis réessayez.',
   POSITION_TOO_OLD: 'Position trop ancienne : patientez quelques secondes.',
   PERIMETER_NOT_CONFIGURED: "Le périmètre du campus n'est pas encore configuré : les contributions ouvriront bientôt.",
   CONTRIBUTIONS_PAUSED: 'Les contributions sont suspendues pour le moment.',
@@ -59,7 +62,7 @@ const readCurrentPosition = () =>
     navigator.geolocation.getCurrentPosition(resolve, reject, {
       enableHighAccuracy: true,
       maximumAge: 5000,
-      timeout: 15000,
+      timeout: 10000,
     });
   });
 
@@ -120,6 +123,7 @@ export function initContributionMode(context, editor) {
   async function obtainDevicePosition() {
     const fix = state.gps.lastFix;
     if (fix && Date.now() - fix.time < FRESH_POSITION_MS) return toDevicePosition(fix);
+    showToast('Vérification de votre position…');
     try {
       const { coords, timestamp } = await readCurrentPosition();
       return {
@@ -128,8 +132,13 @@ export function initContributionMode(context, editor) {
         accuracy: coords.accuracy,
         ageMs: Date.now() - timestamp,
       };
-    } catch {
-      throw new Error(PRESENCE_MESSAGES.POSITION_REQUIRED);
+    } catch (error) {
+      const latestFix = state.gps.lastFix;
+      if (latestFix && Date.now() - latestFix.time < FALLBACK_POSITION_MS) return toDevicePosition(latestFix);
+      // Code 1 : localisation refusée ; codes 2 et 3 : pas de signal pour le moment.
+      throw new Error(error?.code === 1 ? PRESENCE_MESSAGES.POSITION_REQUIRED : PRESENCE_MESSAGES.POSITION_NOT_FOUND, {
+        cause: error,
+      });
     }
   }
 
