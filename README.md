@@ -5,7 +5,7 @@
 
 Carte et guidage piéton pour le campus de l'Université d'Abomey-Calavi (UAC). On tape « scolarité », « BU » ou « amphi 1000 », et l'appli trace le chemin à pied jusqu'à la bonne porte, avec des consignes en français et un guidage GPS. Elle fonctionne dans le navigateur du téléphone, sans installation, et continue sans réseau une fois la carte chargée.
 
-> **Statut : prototype en ligne** sur [uacmap.bytechnum.com](https://uacmap.bytechnum.com) (version 0.2.0). Le moteur d'itinéraire, l'API et le mode collecte fonctionnent. La carte en ligne reste vide tant que le campus n'a pas été relevé sur le terrain. En local, le premier lancement charge un réseau **fictif** de démonstration.
+> **Statut : en ligne** sur [uacmap.bytechnum.com](https://uacmap.bytechnum.com) (version 0.3.0). Le moteur d'itinéraire, l'API, le mode collecte et la contribution ouverte fonctionnent. La carte se remplit au fil des relevés de l'équipe et des propositions relues. En local, le premier lancement charge un réseau **fictif** de démonstration.
 
 | Itinéraire                                                                 | Mode collecte : tracé d'un chemin                               |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -22,11 +22,20 @@ Carte et guidage piéton pour le campus de l'Université d'Abomey-Calavi (UAC). 
 - Point de départ au choix : GPS, QR code « Vous êtes ici » posé sur le campus, ou point touché sur la carte.
 - Lien partageable vers un lieu, fonctionnement hors ligne (appli installable).
 
-**Pour l'équipe qui relève la carte (mode collecte)**
+**Pour les contributeurs, sans compte**
+
+- Un lien public (et son QR code) permet à n'importe quel téléphone de rejoindre, avec un pseudo facultatif.
+- Proposer un lieu, corriger un lieu, tracer ou enregistrer un chemin en marchant, signaler une erreur.
+- Présence sur le campus exigée : position récente et précise dans le périmètre, vérifiée à chaque envoi.
+- « Mes propositions » : état de chaque envoi et note du relecteur ; « Oublier ce téléphone » efface tout.
+
+**Pour l'équipe (mode collecte)**
 
 - Tracé des allées sur fond satellite, avec accroche automatique aux chemins existants.
 - Enregistrement d'un sentier en marchant (trace GPS filtrée, lissée et raccordée au réseau).
 - Fiches de lieux avec alias, description, accès et une ou plusieurs portes d'entrée.
+- Relecture des propositions (comparaison avant et après, aperçu sur la carte), confiance et blocage des téléphones, historique avec annulation.
+- Administration : relecteurs nommés, liens de contribution, suspension des contributions.
 - Impression des QR codes, export GeoJSON, import des données déjà présentes dans OpenStreetMap.
 
 ## Démarrage rapide
@@ -60,17 +69,19 @@ Sous Windows, clonez avec `git clone -c core.autocrlf=input …` : Prettier exig
 
 Ouvrez http://localhost:3000. Au premier lancement, la carte de démonstration est chargée et le jeton d'accès au mode collecte est écrit dans `data/.admin-token` (il n'apparaît jamais dans les journaux). Chaque variable de configuration est documentée dans `.env.example`.
 
-| Commande                   | Rôle                                                                       |
-| -------------------------- | -------------------------------------------------------------------------- |
-| `npm run database:migrate` | Applique les migrations manquantes du schéma de la base                    |
-| `npm run dev`              | Serveur relancé à chaque modification                                      |
-| `npm test`                 | Tests unitaires et d'intégration (ces derniers sur la base de `.env.test`) |
-| `npm run lint`             | ESLint, règles de sécurité en erreur bloquante                             |
-| `npm run format`           | Formatage Prettier                                                         |
-| `npm run check`            | Lint, formatage et tests, comme la CI                                      |
-| `npm run reset -- --oui`   | Vide la carte avant la vraie collecte                                      |
-| `npm run demo`             | Recharge le jeu de démonstration                                           |
-| `npm run import-osm`       | Importe chemins, bâtiments nommés et entrées depuis OpenStreetMap          |
+| Commande                     | Rôle                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------- |
+| `npm run database:migrate`   | Applique les migrations manquantes du schéma de la base                         |
+| `npm run dev`                | Serveur relancé à chaque modification                                           |
+| `npm test`                   | Tests unitaires et d'intégration (ces derniers sur la base de `.env.test`)      |
+| `npm run lint`               | ESLint, règles de sécurité en erreur bloquante                                  |
+| `npm run format`             | Formatage Prettier                                                              |
+| `npm run check`              | Lint, formatage et tests, comme la CI                                           |
+| `npm run reset -- --oui`     | Vide la carte avant la vraie collecte                                           |
+| `npm run demo`               | Recharge le jeu de démonstration                                                |
+| `npm run import-osm`         | Importe chemins, bâtiments nommés et entrées depuis OpenStreetMap               |
+| `npm run import-perimeter`   | Importe le contour du campus depuis OpenStreetMap (périmètre des contributions) |
+| `npm run purge-contributors` | Supprime les contributeurs inactifs depuis 12 mois (à lancer chaque mois)       |
 
 ## Tester sur un téléphone
 
@@ -83,14 +94,22 @@ Depuis un endroit éloigné du campus, l'appli le détecte et propose de toucher
 
 ## Relever le campus
 
-Le mode collecte est aujourd'hui réservé à l'équipe de relevé : il s'ouvre avec le jeton d'accès que l'administrateur transmet à chaque membre (menu > Mode collecte). La contribution ouverte, sans jeton partagé et avec validation des propositions, est prévue pour une prochaine version.
+L'équipe relève la carte dans le mode collecte (menu > Mode collecte). L'administrateur s'y connecte avec `ADMIN_TOKEN`, chaque relecteur avec le jeton personnel que l'administrateur lui a créé.
 
-1. Videz la démonstration (menu > Mode collecte > menu > Vider la carte) ou lancez `npm run import-osm` pour partir de ce qu'OpenStreetMap connaît déjà.
+1. Videz la démonstration (menu > Vider la carte) ou lancez `npm run import-osm` pour partir de ce qu'OpenStreetMap connaît déjà.
 2. **Tracer un chemin** sur le fond satellite. Un point posé près d'un chemin existant s'y accroche : c'est ce qui relie le réseau. Tracez aussi les raccourcis réellement empruntés et marquez escaliers et passages inondables.
 3. **Enregistrer en marchant** les sentiers cachés sous les arbres (seuls les relevés GPS à ± 15 m ou mieux sont gardés).
 4. **Ajouter un lieu** : centre du bâtiment, nom, catégorie, sigles et surnoms, puis chaque porte avec une note (« porte côté parking, 1er étage à gauche »).
 5. **Vérifier** en demandant des itinéraires entre lieux éloignés : un trajet absurde signale presque toujours deux chemins non raccordés.
 6. **Imprimer les QR codes** (menu > Imprimer les QR codes) pour les portails, carrefours et halls.
+
+## Ouvrir la contribution
+
+1. Importer le périmètre du campus : `npm run import-perimeter`. Sans lui, toute proposition est refusée.
+2. Mode collecte (administrateur) > À relire > Administration : créer un lien public, puis les relecteurs. Le jeton d'un relecteur ne s'affiche qu'une fois.
+3. Imprimer l'affiche « Contribuez à la carte » (menu > Imprimer les QR codes) et la poser sur le campus.
+4. Les propositions arrivent dans « À relire ». Accepter publie, refuser envoie une note au contributeur. Un contributeur fiable peut recevoir la confiance : ses ajouts sont alors publiés directement. Un téléphone qui abuse se bloque en un geste.
+5. Toute modification publiée entre dans l'historique et peut être annulée, de la plus récente à la plus ancienne.
 
 ## En ligne
 
@@ -99,11 +118,14 @@ L'application tourne sur un hébergement cPanel mutualisé, avec MariaDB 11.4 et
 ## Architecture
 
 ```
-public/    appli web : app.js (navigation), collectMode.js (mode collecte), sw.js (hors ligne)
-shared/    code commun navigateur et serveur : géométrie, graphe piéton et A*, recherche, consignes, validation
-server/    API Express, accès à MariaDB (server/database/ : pool, migrations, lieux, chemins, sessions), journal de sécurité, import OpenStreetMap
+public/    appli web : app.js (navigation), mapEditor.js (outils d'édition), collectMode.js (mode collecte),
+           contributionMode.js (contribution), reviewPanel.js et ses onglets (relecture), sw.js (hors ligne)
+shared/    code commun navigateur et serveur : géométrie, périmètre et présence, graphe piéton et A*, recherche,
+           consignes, validation, comparaison des propositions
+server/    API Express (routeurs de contribution, de relecture et d'administration), accès à MariaDB
+           (server/database/), journal de sécurité, import OpenStreetMap
 scripts/   commandes de maintenance et contrôles de CI
-docs/      contrat OpenAPI, décisions d'architecture, captures
+docs/      contrat OpenAPI, décisions d'architecture, spécifications, captures
 tests/     tests node:test
 ```
 
@@ -113,11 +135,14 @@ L'API est versionnée sous `/api/v1`. Son contrat de référence est [`docs/open
 
 ## Sécurité et données personnelles
 
-- Le mode collecte s'ouvre avec un jeton échangé contre un cookie de session `HttpOnly`, `SameSite=Strict`, `Secure` en HTTPS. Les échecs répétés sont bloqués 15 minutes.
-- La base ne stocke que des empreintes des identifiants de session et des adresses des clients, jamais leur valeur.
-- Le journal de sécurité (une ligne JSON par événement) ne contient ni jeton, ni adresse IP, ni donnée personnelle.
+- Le mode collecte s'ouvre avec un jeton (administrateur ou relecteur) échangé contre un cookie de session `HttpOnly`, `SameSite=Strict`, `Secure` en HTTPS. Les échecs répétés sont bloqués 15 minutes. Un relecteur n'accède ni aux relecteurs, ni aux liens, ni à la suspension, ni à « Vider la carte ».
+- Un contributeur n'a pas de compte : un secret aléatoire dans un cookie `HttpOnly` identifie son téléphone. La base ne garde que son empreinte.
+- Les coordonnées GPS d'un contributeur ne sont jamais enregistrées : seule la précision de la position vérifiée est gardée avec la proposition.
+- Conservation : un contributeur inactif depuis 12 mois est supprimé (`npm run purge-contributors`, chaque mois) ; « Oublier ce téléphone » le supprime tout de suite. Ce qu'il a publié reste, attribué à « contributeur supprimé ».
+- Limites d'envoi : 30 propositions par heure et par téléphone, plafonds larges par connexion contre les robots.
+- La base ne stocke que des empreintes des identifiants de session, des jetons et des adresses des clients, jamais leur valeur.
+- Le journal de sécurité (une ligne JSON par événement) ne contient ni jeton, ni adresse IP, ni pseudo.
 - Toute insertion HTML côté navigateur passe par un gabarit qui échappe les valeurs ; une règle ESLint bloque les autres.
-- L'appli ne collecte aucune donnée personnelle : pas de compte visiteur, calcul d'itinéraire sur le téléphone.
 
 Signaler une vulnérabilité : voir [SECURITY.md](SECURITY.md).
 
@@ -126,7 +151,8 @@ Signaler une vulnérabilité : voir [SECURITY.md](SECURITY.md).
 - **Précision GPS** : environ 5 m à découvert sur un téléphone courant, bien moins sous les arbres ou entre bâtiments. Le cercle de précision est toujours affiché ; les QR codes donnent un départ exact.
 - **Fonds de carte** : tuiles OpenStreetMap et imagerie Esri appelées directement. Acceptable pour un prototype, pas pour une diffusion à tous les étudiants : prévoir un fond vectoriel auto-hébergé avant le lancement public.
 - **Stockage** : MariaDB sur un seul serveur, sauvegardée chaque nuit (voir [docs/deployment.md](docs/deployment.md)).
-- Un seul jeton partagé pour le mode collecte, pas de comptes nominatifs ni d'historique des modifications.
+- Présence sur le campus : un navigateur permet de simuler une position. La relecture, les limites d'envoi et le blocage traitent les abus.
+- Un contributeur qui change de téléphone ou efface ses cookies redevient « nouveau » : un relecteur lui réaccorde la confiance.
 - Pas encore de plans d'intérieur ni d'étages navigables.
 
 ## Contribuer

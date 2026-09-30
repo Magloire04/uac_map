@@ -139,13 +139,61 @@ gunzip -c uac_map-AAAAMMJJ-HHMM.sql.gz | mariadb -h 127.0.0.1 -P 3307 -u root ua
 
 ## 5. En cas de problème
 
-| Symptôme                                                                      | Cause probable                                                  | Action                                                                                                                    |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Page d'erreur de l'hébergeur                                                  | L'application refuse de démarrer                                | Lire le fichier `stderr.log` à la racine de l'application : il commence par « Démarrage impossible : » suivi de la raison |
-| « Variables d'environnement manquantes »                                      | `.env` incomplet                                                | Compléter `.env`, puis RESTART                                                                                            |
-| « Schéma de la base en retard »                                               | Migrations non appliquées                                       | `npm run database:migrate` dans l'environnement Node, puis RESTART                                                        |
-| « Base de données injoignable »                                               | Identifiants ou nom de base erronés                             | Vérifier `DATABASE_*` dans `.env`                                                                                         |
-| Tout le monde bloqué après des échecs de connexion                            | `TRUST_PROXY` inadapté                                          | Voir la vérification 4 de la section 2                                                                                    |
-| Sauvegarde : « Ni mariadb-dump ni mysqldump n'est disponible sur ce serveur » | Outils clients MariaDB absents du PATH SSH                      | Demander à l'hébergeur où ils se trouvent ; en attendant, exporter la base depuis phpMyAdmin (Exporter)                   |
-| Restauration : « mariadb: command not found »                                 | Ancien nom du client                                            | Remplacer `mariadb` par `mysql` dans la commande                                                                          |
-| Sauvegarde : « SSL is required, but the server does not support it »          | Le client MariaDB exige TLS, le serveur local ne le propose pas | Ajouter une ligne `skip-ssl` dans `~/.uac_map.my.cnf`                                                                     |
+| Symptôme                                                                          | Cause probable                                                  | Action                                                                                                                    |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Page d'erreur de l'hébergeur                                                      | L'application refuse de démarrer                                | Lire le fichier `stderr.log` à la racine de l'application : il commence par « Démarrage impossible : » suivi de la raison |
+| « Variables d'environnement manquantes »                                          | `.env` incomplet                                                | Compléter `.env`, puis RESTART                                                                                            |
+| « Schéma de la base en retard »                                                   | Migrations non appliquées                                       | `npm run database:migrate` dans l'environnement Node, puis RESTART                                                        |
+| « Base de données injoignable »                                                   | Identifiants ou nom de base erronés                             | Vérifier `DATABASE_*` dans `.env`                                                                                         |
+| Tout le monde bloqué après des échecs de connexion                                | `TRUST_PROXY` inadapté                                          | Voir la vérification 4 de la section 2                                                                                    |
+| Sauvegarde : « Ni mariadb-dump ni mysqldump n'est disponible sur ce serveur »     | Outils clients MariaDB absents du PATH SSH                      | Demander à l'hébergeur où ils se trouvent ; en attendant, exporter la base depuis phpMyAdmin (Exporter)                   |
+| Restauration : « mariadb: command not found »                                     | Ancien nom du client                                            | Remplacer `mariadb` par `mysql` dans la commande                                                                          |
+| Sauvegarde : « SSL is required, but the server does not support it »              | Le client MariaDB exige TLS, le serveur local ne le propose pas | Ajouter une ligne `skip-ssl` dans `~/.uac_map.my.cnf`                                                                     |
+| Toute proposition refusée : « Le périmètre du campus n’est pas encore configuré » | Périmètre non importé                                           | Section 6.1                                                                                                               |
+| Import du périmètre : « Overpass a répondu 429 » ou 504                           | Serveur Overpass surchargé                                      | Réessayer plus tard, ou `--fichier` (section 6.1)                                                                         |
+
+## 6. Contribution ouverte (depuis la version 0.3.0)
+
+### 6.1 Périmètre du campus
+
+En SSH, dans l'environnement Node :
+
+```bash
+cd ~/uac_map
+npm run import-perimeter
+```
+
+La commande doit afficher « Périmètre enregistré : N points. ». Si Overpass ne répond pas, réessayer plus tard, changer de serveur avec `OVERPASS_URL`, ou téléverser un export et lancer `npm run import-perimeter -- --fichier <fichier>` (l'export `data/osm-brut.json` laissé par `npm run import-osm` convient). À refaire seulement si le contour change dans OpenStreetMap.
+
+### 6.2 Lien public et relecteurs
+
+Dans l'appli, mode collecte avec `ADMIN_TOKEN`, À relire > Administration :
+
+1. Créer le lien public (« Lien public du site »), puis imprimer son affiche (menu > Imprimer les QR codes).
+2. Créer chaque relecteur. Son jeton ne s'affiche qu'une fois : le transmettre par un canal sûr.
+
+### 6.3 Purge mensuelle des contributeurs inactifs
+
+Par l'écran Tâches Cron de cPanel (le plus sûr) :
+
+- Fréquence : `0 4 1 * *`
+- Commande : `/bin/bash -c 'source /home/<compte>/nodevenv/uac_map/24/bin/activate && cd /home/<compte>/uac_map && npm run purge-contributors' >> /home/<compte>/backups/uac_map/purge.log 2>&1`
+
+En SSH, ne jamais modifier la liste par un tube (`crontab -l | … | crontab -`) : une erreur l'efface pour tous les sites du compte. Toujours passer par un fichier :
+
+```bash
+crontab -l > ~/crontab-sauvegarde-$(date +%Y%m%d-%H%M).txt
+wc -l ~/crontab-sauvegarde-*.txt
+cp ~/crontab-sauvegarde-<horodatage>.txt ~/crontab-nouvelle.txt
+nano ~/crontab-nouvelle.txt          # ajouter la ligne de la purge à la fin
+crontab ~/crontab-nouvelle.txt
+crontab -l | wc -l                   # une ligne de plus qu'avant
+```
+
+### 6.4 Vérifications
+
+1. `https://uacmap.bytechnum.com/api/v1/campus-map` : `settings.perimeter` n'est pas vide.
+2. Sur un téléphone, loin du campus : Contribuer à la carte, rejoindre, les outils restent grisés avec « Vous semblez hors du campus… ».
+3. Sur le campus : proposer un lieu, le voir « En attente » dans Mes propositions ; l'accepter en mode collecte ; il apparaît sur la carte et le contributeur le voit « Publiée ».
+4. Un relecteur ne voit ni l'onglet Administration ni « Vider la carte ».
+5. `~/backups/uac_map/purge.log` se remplit le 1er de chaque mois.
