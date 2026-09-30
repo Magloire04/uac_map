@@ -172,7 +172,7 @@ export function initContributionMode(context, editor) {
       await handleRefusal(error);
       throw error;
     }
-    await refreshOwnProposals();
+    refreshOwnProposals();
     if (saved.status === 'accepted') {
       await context.reloadCampusMap();
       return 'Merci : votre modification est publiée.';
@@ -185,12 +185,16 @@ export function initContributionMode(context, editor) {
   // ---------- Mes propositions ----------
 
   async function refreshOwnProposals() {
+    let proposals;
     try {
-      ({ data: ownProposals } = await callApi('GET', '/contributors/me/proposals?limit=50'));
+      ({ data: proposals } = await callApi('GET', '/contributors/me/proposals?limit=50'));
     } catch (error) {
       await handleRefusal(error);
       return;
     }
+    // Réponse tardive : le mode a été quitté entre-temps, on ne redessine rien.
+    if (state.mode !== 'contribution') return;
+    ownProposals = proposals;
     renderOwnProposalsOnMap();
     editor.render();
   }
@@ -347,6 +351,7 @@ export function initContributionMode(context, editor) {
       savePath: (pathBody) => submitProposal({ entityType: 'path', action: 'create', payload: pathBody }),
     },
     onClose: () => {
+      ownProposals = [];
       if (reportDialog.open) reportDialog.close();
       context.setSourceData('own-proposals', context.toFeatureCollection([]));
       state.gps.subscribers.delete(updatePresence);
