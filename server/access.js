@@ -13,11 +13,19 @@ import {
   isSameSecret,
   readCookie,
 } from './adminSessions.js';
-import { ADMIN_ACTOR } from './actors.js';
+import { ADMIN_ACTOR, reviewerActor } from './actors.js';
 import { findAdminSession } from './database/adminSessionRepository.js';
 import { clearFailedAttempts, reserveLoginAttempt } from './database/failedLoginAttemptRepository.js';
+import { findActiveReviewerByToken } from './database/reviewerRepository.js';
 import { asyncRoute, sendError } from './http.js';
 import { logSecurityEvent } from './securityLog.js';
+
+// Ce que l'appli sait d'une session : son échéance, le rôle (admin ou reviewer) et le nom du relecteur.
+export const toSessionView = ({ expiresAt, actor, reviewerName }) => ({
+  expiresAt: expiresAt.toISOString(),
+  role: actor.kind,
+  name: reviewerName ?? null,
+});
 
 export function createStaffAccess({ database, adminToken, getNow }) {
   const tokenDigest = createTokenDigest(adminToken);
@@ -55,5 +63,38 @@ export function createStaffAccess({ database, adminToken, getNow }) {
     sendError(response, 401, 'UNAUTHORIZED', 'Session du mode collecte absente ou expirée');
   });
 
-  return { tokenDigest, tokenFingerprint, getClientDigest, findSession, requireStaff };
+  // Jeton présenté à l'ouverture d'une session : ADMIN_TOKEN, ou jeton personnel d'un relecteur actif. La session
+  // d'un relecteur garde l'empreinte de son propre jeton. L'en-tête Bearer, lui, reste réservé à ADMIN_TOKEN.
+  async function identifyToken(token) {
+    if (isSameSecret(token, tokenDigest)) return { actor: ADMIN_ACTOR, tokenFingerprint, reviewerName: null };
+    const reviewer = await findActiveReviewerByToken(database, token);
+    if (!reviewer) return null;
+    return {
+      actor: reviewerActor(reviewer.id),
+      tokenFingerprint: createTokenFingerprint(token),
+      reviewerName: reviewer.name,
+    };
+  }
+
+  // Réservé à l'administrateur : relecteurs, liens, suspension, vider la carte.
+  const checkAdministrator = (request, response, next) => {
+    if (request.actor.kind === 'admin') return next();
+    logSecurityEvent(
+      'admin_action_forbidden',
+      { requestId: request.requestId, method: request.method, path: request.path, reviewerId: request.actor.id },
+      'warn',
+    );
+    sendError(response, 403, 'FORBIDDEN', 'Action réservée à l’administrateur');
+  };
+  const requireAdministrator = [requireStaff, checkAdministrator];
+
+  return {
+    tokenDigest,
+    tokenFingerprint,
+    getClientDigest,
+    findSession,
+    identifyToken,
+    requireStaff,
+    requireAdministrator,
+  };
 }

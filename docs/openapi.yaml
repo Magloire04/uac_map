@@ -206,6 +206,8 @@ components:
           type: object
           properties:
             expiresAt: { type: string, format: date-time }
+            role: { type: string, enum: [admin, reviewer] }
+            name: { type: [string, 'null'], description: Nom du relecteur, vide pour l'administrateur. }
     DevicePosition:
       type: object
       required: [longitude, latitude, accuracy, ageMs]
@@ -344,7 +346,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
     delete:
       tags: [Carte]
-      summary: Vider la carte (tous les lieux et chemins)
+      summary: Vider la carte (tous les lieux et chemins), réservé à l'administrateur
       security: [{ adminSession: [] }, { adminToken: [] }]
       parameters:
         - { $ref: '#/components/parameters/RequestId' }
@@ -356,6 +358,7 @@ paths:
         '204': { $ref: '#/components/responses/NoContent' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /places:
     get:
@@ -548,7 +551,7 @@ paths:
     post:
       tags: [Session]
       summary: Ouvrir une session du mode collecte
-      description: Échange le jeton d'accès contre un cookie httpOnly, SameSite=Strict, valable 12 heures.
+      description: Échange ADMIN_TOKEN ou le jeton personnel d'un relecteur contre un cookie httpOnly, SameSite=Strict, valable 12 heures.
       requestBody:
         required: true
         content:
