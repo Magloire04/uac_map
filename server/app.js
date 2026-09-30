@@ -8,55 +8,40 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { logSecurityEvent, logError } from './securityLog.js';
-import {
-  SESSION_COOKIE_NAME,
-  SESSION_DURATION_MS,
-  createClientDigest,
-  createTokenDigest,
-  createTokenFingerprint,
-  isSameSecret,
-  readCookie,
-} from './adminSessions.js';
+import { SESSION_COOKIE_NAME, SESSION_DURATION_MS, isSameSecret, readCookie } from './adminSessions.js';
+import { createStaffAccess } from './access.js';
 import { withTransaction } from './database/connection.js';
-import { createAdminSession, deleteAdminSession, findAdminSession } from './database/adminSessionRepository.js';
+import { createAdminSession, deleteAdminSession } from './database/adminSessionRepository.js';
 import { clearFailedAttempts, reserveLoginAttempt } from './database/failedLoginAttemptRepository.js';
 import {
-  deletePath,
-  deletePlace,
   findPath,
   findPlace,
   generateId,
-  insertPath,
-  insertPlace,
   listPaths,
   listPlaces,
   readCampusMap,
-  replacePlace,
   rewriteCampusMap,
-  updatePathAttributes,
 } from './database/campusMapRepository.js';
+import {
+  ApiError,
+  asyncRoute,
+  readBaseUrl,
+  readFilter,
+  readPagination,
+  sendError,
+  toPage,
+  writeCookie,
+} from './http.js';
+import { createContributionRoutes } from './contributionRoutes.js';
+import { createEntity, deleteEntity, updateEntity } from './mapEditing.js';
 import { cleanPlace, cleanPath, ValidationError } from '../shared/validate.js';
 import { PLACE_CATEGORIES } from '../shared/search.js';
 import { PATH_TYPES } from '../shared/graph.js';
 
 const PROJECT_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TILE_HOSTS = ['https://tile.openstreetmap.org', 'https://server.arcgisonline.com'];
-const DEFAULT_PAGE_LIMIT = 20;
-const MAX_PAGE_LIMIT = 100;
 const MIN_ADMIN_TOKEN_LENGTH = 18;
 const DUPLICATE_ENTRY = 'ER_DUP_ENTRY';
-
-// Erreur métier transportée jusqu'au gestionnaire d'erreurs, qui produit l'enveloppe standard.
-export class ApiError extends Error {
-  constructor(status, code, message) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
-
-const sendError = (response, status, code, message) =>
-  response.status(status).json({ error: { code, message, status } });
 
 function setSecurityHeaders(_request, response, next) {
   response.set({
@@ -87,30 +72,6 @@ function assignRequestId(request, response, next) {
   response.set('X-Request-ID', request.requestId);
   next();
 }
-
-function readPagination(query) {
-  const page = Number.parseInt(query.page ?? '1', 10);
-  const limit = Number.parseInt(query.limit ?? String(DEFAULT_PAGE_LIMIT), 10);
-  if (!Number.isInteger(page) || page < 1)
-    throw new ApiError(400, 'INVALID_PAGE', 'Le paramètre page doit être un entier ≥ 1');
-  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE_LIMIT) {
-    throw new ApiError(400, 'INVALID_LIMIT', `Le paramètre limit doit être compris entre 1 et ${MAX_PAGE_LIMIT}`);
-  }
-  const sortBy = query['sort-by'] ?? 'name';
-  if (!['id', 'name'].includes(sortBy)) throw new ApiError(400, 'INVALID_SORT', 'sort-by accepte id ou name');
-  const order = query.order ?? 'asc';
-  if (!['asc', 'desc'].includes(order)) throw new ApiError(400, 'INVALID_ORDER', 'order accepte asc ou desc');
-  return { page, limit, sortBy, order };
-}
-
-// Filtre facultatif à valeur unique : absent ou vide, il est ignoré ; répété (?type=a&type=b), il est refusé.
-function readFilter(value, allowedValues, errorCode, message) {
-  if (value === undefined || value === '') return undefined;
-  if (typeof value !== 'string' || !Object.hasOwn(allowedValues, value)) throw new ApiError(400, errorCode, message);
-  return value;
-}
-
-const toPage = ({ items, total }, { page, limit }) => ({ data: items, meta: { page, limit, total } });
 
 function buildGeoJson(campusMap) {
   const features = [
@@ -167,9 +128,8 @@ export function createApp({
   if (!adminToken || adminToken.length < MIN_ADMIN_TOKEN_LENGTH) {
     throw new Error(`ADMIN_TOKEN trop court (${MIN_ADMIN_TOKEN_LENGTH} caractères minimum)`);
   }
-  const tokenDigest = createTokenDigest(adminToken);
-  const tokenFingerprint = createTokenFingerprint(adminToken);
-  const getClientDigest = (request) => createClientDigest(request.ip, adminToken);
+  const staffAccess = createStaffAccess({ database, adminToken, getNow });
+  const { requireStaff } = staffAccess;
 
   const app = express();
   app.disable('x-powered-by');
@@ -177,43 +137,6 @@ export function createApp({
   app.use(setSecurityHeaders);
   app.use(assignRequestId);
   app.use(express.json({ limit: '1mb' }));
-
-  const writeSessionCookie = (request, response, sessionId, maxAgeMs) => {
-    const attributes = [
-      `${SESSION_COOKIE_NAME}=${sessionId}`,
-      'Path=/api',
-      'HttpOnly',
-      'SameSite=Strict',
-      `Max-Age=${Math.floor(maxAgeMs / 1000)}`,
-    ];
-    if (request.secure) attributes.push('Secure');
-    response.append('Set-Cookie', attributes.join('; '));
-  };
-
-  const asyncRoute = (handler) => (request, response, next) =>
-    Promise.resolve(handler(request, response, next)).catch(next);
-
-  // Accès au mode collecte : cookie de session (appli web) ou en-tête Bearer avec le jeton (scripts).
-  const requireAdmin = asyncRoute(async (request, response, next) => {
-    const now = getNow();
-    const sessionId = readCookie(request, SESSION_COOKIE_NAME);
-    if (await findAdminSession(database, sessionId, tokenFingerprint, now)) return next();
-    const header = request.get('authorization') || '';
-    const bearerToken = header.startsWith('Bearer ') ? header.slice(7) : '';
-    if (bearerToken) {
-      const clientDigest = getClientDigest(request);
-      if ((await reserveLoginAttempt(database, clientDigest, now)) && isSameSecret(bearerToken, tokenDigest)) {
-        await clearFailedAttempts(database, clientDigest);
-        return next();
-      }
-    }
-    logSecurityEvent(
-      'admin_access_denied',
-      { requestId: request.requestId, method: request.method, path: request.path },
-      'warn',
-    );
-    sendError(response, 401, 'UNAUTHORIZED', 'Session du mode collecte absente ou expirée');
-  });
 
   const api = express.Router();
 
@@ -225,19 +148,19 @@ export function createApp({
     '/admin/session',
     asyncRoute(async (request, response) => {
       const now = getNow();
-      const clientDigest = getClientDigest(request);
+      const clientDigest = staffAccess.getClientDigest(request);
       // L'essai est compté avant la comparaison : des requêtes parallèles ne peuvent pas dépasser la limite.
       if (!(await reserveLoginAttempt(database, clientDigest, now))) {
         logSecurityEvent('admin_login_blocked', { requestId: request.requestId }, 'warn');
         return sendError(response, 429, 'TOO_MANY_ATTEMPTS', 'Trop de tentatives, réessayez dans 15 minutes');
       }
-      if (!isSameSecret(request.body?.token, tokenDigest)) {
+      if (!isSameSecret(request.body?.token, staffAccess.tokenDigest)) {
         logSecurityEvent('admin_login_failed', { requestId: request.requestId }, 'warn');
         return sendError(response, 401, 'INVALID_TOKEN', "Jeton d'accès incorrect");
       }
       await clearFailedAttempts(database, clientDigest);
-      const { sessionId, expiresAt } = await createAdminSession(database, tokenFingerprint, now);
-      writeSessionCookie(request, response, sessionId, SESSION_DURATION_MS);
+      const { sessionId, expiresAt } = await createAdminSession(database, staffAccess.tokenFingerprint, now);
+      writeCookie(request, response, SESSION_COOKIE_NAME, sessionId, SESSION_DURATION_MS);
       logSecurityEvent('admin_login_succeeded', { requestId: request.requestId });
       response.status(201).json({ data: { expiresAt: expiresAt.toISOString() } });
     }),
@@ -246,10 +169,9 @@ export function createApp({
   api.get(
     '/admin/session',
     asyncRoute(async (request, response) => {
-      const sessionId = readCookie(request, SESSION_COOKIE_NAME);
-      const expiresAt = (await findAdminSession(database, sessionId, tokenFingerprint, getNow()))?.expiresAt;
-      if (!expiresAt) return sendError(response, 401, 'UNAUTHORIZED', 'Aucune session active');
-      response.json({ data: { expiresAt: expiresAt.toISOString() } });
+      const session = await staffAccess.findSession(request);
+      if (!session) return sendError(response, 401, 'UNAUTHORIZED', 'Aucune session active');
+      response.json({ data: { expiresAt: session.expiresAt.toISOString() } });
     }),
   );
 
@@ -257,7 +179,7 @@ export function createApp({
     '/admin/session',
     asyncRoute(async (request, response) => {
       await deleteAdminSession(database, readCookie(request, SESSION_COOKIE_NAME));
-      writeSessionCookie(request, response, '', 0);
+      writeCookie(request, response, SESSION_COOKIE_NAME, '', 0);
       logSecurityEvent('admin_logout', { requestId: request.requestId });
       response.status(204).end();
     }),
@@ -284,7 +206,7 @@ export function createApp({
 
   api.delete(
     '/campus-map',
-    requireAdmin,
+    requireStaff,
     asyncRoute(async (request, response) => {
       if (request.query.confirm !== 'true') {
         throw new ApiError(400, 'CONFIRMATION_REQUIRED', 'Ajoutez ?confirm=true pour vider la carte');
@@ -293,6 +215,7 @@ export function createApp({
         database,
         (campusMap) => ({ ...campusMap, places: [], paths: [], settings: { ...campusMap.settings, isDemo: false } }),
         getNow(),
+        request.actor,
       );
       logSecurityEvent('campus_map_cleared', { requestId: request.requestId });
       response.status(204).end();
@@ -322,11 +245,11 @@ export function createApp({
 
   api.post(
     '/places',
-    requireAdmin,
+    requireStaff,
     asyncRoute(async (request, response) => {
       const fields = cleanPlace(request.body);
       const id = await insertWithFreshId(database, 'place', (connection, candidateId) =>
-        insertPlace(connection, { id: candidateId, ...fields }, getNow()),
+        createEntity(connection, 'place', { id: candidateId, ...fields }, { actor: request.actor }, getNow()),
       );
       logSecurityEvent('place_created', { requestId: request.requestId, resourceId: id });
       response.status(201).json({ data: { id, ...fields } });
@@ -335,11 +258,18 @@ export function createApp({
 
   api.put(
     '/places/:placeId',
-    requireAdmin,
+    requireStaff,
     asyncRoute(async (request, response) => {
       const replacement = cleanPlace(request.body);
       const place = await withTransaction(database, (connection) =>
-        replacePlace(connection, request.params.placeId, replacement, getNow()),
+        updateEntity(
+          connection,
+          'place',
+          request.params.placeId,
+          () => replacement,
+          { actor: request.actor },
+          getNow(),
+        ),
       );
       if (!place) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
       logSecurityEvent('place_updated', { requestId: request.requestId, resourceId: place.id });
@@ -349,10 +279,10 @@ export function createApp({
 
   api.delete(
     '/places/:placeId',
-    requireAdmin,
+    requireStaff,
     asyncRoute(async (request, response) => {
       const isRemoved = await withTransaction(database, (connection) =>
-        deletePlace(connection, request.params.placeId, getNow()),
+        deleteEntity(connection, 'place', request.params.placeId, { actor: request.actor }, getNow()),
       );
       if (!isRemoved) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
       logSecurityEvent('place_deleted', { requestId: request.requestId, resourceId: request.params.placeId });
@@ -366,8 +296,7 @@ export function createApp({
     asyncRoute(async (request, response) => {
       const place = await findPlace(database, request.params.placeId);
       if (!place) throw new ApiError(404, 'PLACE_NOT_FOUND', 'Lieu inexistant');
-      const baseUrl = (publicUrl || `${request.protocol}://${request.get('host')}`).replace(/\/$/, '');
-      const targetUrl = `${baseUrl}/?ici=${encodeURIComponent(place.id)}`;
+      const targetUrl = `${readBaseUrl(request, publicUrl)}/?ici=${encodeURIComponent(place.id)}`;
       const svg = await QRCode.toString(targetUrl, { type: 'svg', errorCorrectionLevel: 'M', margin: 2 });
       response.type('image/svg+xml').set('Cache-Control', 'no-cache').send(svg);
     }),
@@ -395,35 +324,34 @@ export function createApp({
 
   api.post(
     '/paths',
-    requireAdmin,
+    requireStaff,
     asyncRoute(async (request, response) => {
       const fields = cleanPath(request.body);
       const id = await insertWithFreshId(database, 'path', (connection, candidateId) =>
-        insertPath(connection, { id: candidateId, ...fields }, getNow()),
+        createEntity(connection, 'path', { id: candidateId, ...fields }, { actor: request.actor }, getNow()),
       );
       logSecurityEvent('path_created', { requestId: request.requestId, resourceId: id });
       response.status(201).json({ data: { id, ...fields } });
     }),
   );
 
-  // Mise à jour partielle : type, nom, caractère inondable. Le tracé ne change pas.
+  // Mise à jour partielle : type, nom, caractère inondable. Le tracé ne change pas. La lecture verrouillée
+  // d'updateEntity fait passer l'une après l'autre deux modifications partielles simultanées.
   api.patch(
     '/paths/:pathId',
-    requireAdmin,
+    requireStaff,
     asyncRoute(async (request, response) => {
       const body = request.body || {};
-      const path = await withTransaction(database, async (connection) => {
-        // Lecture verrouillée : deux modifications partielles simultanées s'appliquent l'une après l'autre.
-        const existing = await findPath(connection, request.params.pathId, { isLocking: true });
-        if (!existing) return null;
-        const { type, name, isFloodProne } = cleanPath({
+      const buildNext = (existing) =>
+        cleanPath({
           type: body.type ?? existing.type,
           name: body.name ?? existing.name,
           isFloodProne: body.isFloodProne ?? existing.isFloodProne,
           coordinates: existing.coordinates,
         });
-        return updatePathAttributes(connection, existing.id, { type, name, isFloodProne }, getNow());
-      });
+      const path = await withTransaction(database, (connection) =>
+        updateEntity(connection, 'path', request.params.pathId, buildNext, { actor: request.actor }, getNow()),
+      );
       if (!path) throw new ApiError(404, 'PATH_NOT_FOUND', 'Chemin inexistant');
       logSecurityEvent('path_updated', { requestId: request.requestId, resourceId: path.id });
       response.json({ data: path });
@@ -432,16 +360,20 @@ export function createApp({
 
   api.delete(
     '/paths/:pathId',
-    requireAdmin,
+    requireStaff,
     asyncRoute(async (request, response) => {
       const isRemoved = await withTransaction(database, (connection) =>
-        deletePath(connection, request.params.pathId, getNow()),
+        deleteEntity(connection, 'path', request.params.pathId, { actor: request.actor }, getNow()),
       );
       if (!isRemoved) throw new ApiError(404, 'PATH_NOT_FOUND', 'Chemin inexistant');
       logSecurityEvent('path_deleted', { requestId: request.requestId, resourceId: request.params.pathId });
       response.status(204).end();
     }),
   );
+
+  // ---------- Contribution ouverte ----------
+
+  api.use(createContributionRoutes({ database, publicUrl, getNow, getClientDigest: staffAccess.getClientDigest }));
 
   api.use((_request, response) => sendError(response, 404, 'ROUTE_NOT_FOUND', 'Route inconnue'));
 

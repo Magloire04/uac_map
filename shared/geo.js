@@ -146,3 +146,40 @@ export function createCirclePolygon(center, radiusMeters, stepCount = 48) {
   }
   return ring;
 }
+
+const isLonLat = (point) =>
+  Array.isArray(point) &&
+  point.length === 2 &&
+  point.every(Number.isFinite) &&
+  Math.abs(point[0]) <= 180 &&
+  Math.abs(point[1]) <= 90;
+
+// Périmètre du campus : polygone fermé [[longitude, latitude], …] d'au moins 4 points (le dernier répète le premier).
+export function isValidPerimeter(perimeter) {
+  if (!Array.isArray(perimeter) || perimeter.length < 4 || !perimeter.every(isLonLat)) return false;
+  const [first, last] = [perimeter[0], perimeter[perimeter.length - 1]];
+  return first[0] === last[0] && first[1] === last[1];
+}
+
+// Vrai si la position est dans le polygone, ou à moins de marginMeters de l'un de ses côtés. Calcul en projection
+// locale, identique dans le navigateur et sur le serveur. Un périmètre invalide ne contient rien.
+export function isInsidePerimeter(position, perimeter, marginMeters = 0) {
+  if (!isValidPerimeter(perimeter)) return false;
+  const projector = createProjector(position[1]);
+  const point = projector.toPlane(position);
+  const ring = perimeter.map(projector.toPlane);
+  let isInside = false;
+  for (let index = 1; index < ring.length; index++) {
+    const [startX, startY] = ring[index - 1];
+    const [endX, endY] = ring[index];
+    const crossesRay =
+      startY > point[1] !== endY > point[1] &&
+      point[0] < ((endX - startX) * (point[1] - startY)) / (endY - startY) + startX;
+    if (crossesRay) isInside = !isInside;
+  }
+  if (isInside) return true;
+  for (let index = 1; index < ring.length; index++) {
+    if (projectOnSegment(point, ring[index - 1], ring[index]).distance <= marginMeters) return true;
+  }
+  return false;
+}

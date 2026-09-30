@@ -218,14 +218,14 @@ export async function insertPath(executor, path, now = new Date()) {
   await touchSettings(executor, now);
 }
 
-export async function updatePathAttributes(executor, pathId, { type, name, isFloodProne }, now = new Date()) {
+export async function replacePath(executor, pathId, fields, now = new Date()) {
   const [result] = await executor.execute(
-    'UPDATE paths SET `type` = ?, name = ?, is_flood_prone = ?, updated_at = ? WHERE id = ?',
-    [type, name, isFloodProne, now, pathId],
+    'UPDATE paths SET `type` = ?, name = ?, is_flood_prone = ?, coordinates = ?, updated_at = ? WHERE id = ?',
+    [fields.type, fields.name, fields.isFloodProne, JSON.stringify(fields.coordinates), now, pathId],
   );
   if (result.affectedRows === 0) return null;
   await touchSettings(executor, now);
-  return findPath(executor, pathId);
+  return { id: pathId, ...fields };
 }
 
 export async function deletePath(executor, pathId, now = new Date()) {
