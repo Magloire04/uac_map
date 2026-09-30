@@ -15,6 +15,7 @@ import { createSquarePerimeter } from './helpers.js';
 import { createTestPool, databaseAfter, databaseBefore, databaseTest, resetTestDatabase } from './testDatabase.js';
 
 const ADMIN_TOKEN = 'jeton-de-test-1234';
+// DELETE /admin/session n'y figure pas : la déconnexion reste ouverte à tous et fermerait les sessions de la matrice.
 const ROUTES = [
   ['GET', '/contribution/public-link', 'public'],
   ['POST', '/contributors', 'public'],
@@ -43,6 +44,9 @@ const ROUTES = [
   ['PATCH', '/contribution-links/inexistant', 'administrator'],
   ['PATCH', '/campus-settings', 'administrator'],
   ['DELETE', '/campus-map', 'administrator'],
+  ['GET', '/admin/session', 'staff'],
+  // Doit rester en dernier : l'appel du contributeur supprime le contributeur de test.
+  ['DELETE', '/contributors/me', 'contributor'],
 ];
 const isAllowed = (status) => status !== 401 && status !== 403;
 const isUnauthorized = (status) => status === 401;
