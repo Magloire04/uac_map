@@ -18,11 +18,7 @@ import {
   readCookie,
 } from './adminSessions.js';
 import { withTransaction } from './database/connection.js';
-import {
-  createAdminSession,
-  deleteAdminSession,
-  findAdminSessionExpiration,
-} from './database/adminSessionRepository.js';
+import { createAdminSession, deleteAdminSession, findAdminSession } from './database/adminSessionRepository.js';
 import { clearFailedAttempts, reserveLoginAttempt } from './database/failedLoginAttemptRepository.js';
 import {
   deletePath,
@@ -201,7 +197,7 @@ export function createApp({
   const requireAdmin = asyncRoute(async (request, response, next) => {
     const now = getNow();
     const sessionId = readCookie(request, SESSION_COOKIE_NAME);
-    if (await findAdminSessionExpiration(database, sessionId, tokenFingerprint, now)) return next();
+    if (await findAdminSession(database, sessionId, tokenFingerprint, now)) return next();
     const header = request.get('authorization') || '';
     const bearerToken = header.startsWith('Bearer ') ? header.slice(7) : '';
     if (bearerToken) {
@@ -251,7 +247,7 @@ export function createApp({
     '/admin/session',
     asyncRoute(async (request, response) => {
       const sessionId = readCookie(request, SESSION_COOKIE_NAME);
-      const expiresAt = await findAdminSessionExpiration(database, sessionId, tokenFingerprint, getNow());
+      const expiresAt = (await findAdminSession(database, sessionId, tokenFingerprint, getNow()))?.expiresAt;
       if (!expiresAt) return sendError(response, 401, 'UNAUTHORIZED', 'Aucune session active');
       response.json({ data: { expiresAt: expiresAt.toISOString() } });
     }),

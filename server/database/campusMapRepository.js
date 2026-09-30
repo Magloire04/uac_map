@@ -8,31 +8,33 @@
 import { randomUUID } from 'node:crypto';
 import { withNamedLock, withTransaction } from './connection.js';
 import { createEmptyCampusMap, SCHEMA_VERSION } from '../campusMapDefaults.js';
+import { readJsonColumn, toJsonColumn } from './jsonColumns.js';
+import { recordMapChange } from './mapChangeRepository.js';
+import { COMMAND_ACTOR } from '../actors.js';
 
 const INITIALISATION_LOCK = 'uac_map_initialisation';
 const SORTABLE_COLUMNS = { id: 'id', name: 'name' };
 const SORT_DIRECTIONS = { asc: 'ASC', desc: 'DESC' };
 const PLACE_COLUMNS = 'id, name, category, aliases, description, `access`, longitude, latitude, entrances';
 const PATH_COLUMNS = 'id, `type`, name, is_flood_prone, coordinates';
-const SETTINGS_COLUMNS = 'name, center_longitude, center_latitude, zoom, is_demo, updated_at';
+const SETTINGS_COLUMNS =
+  'name, center_longitude, center_latitude, zoom, is_demo, perimeter, contributions_paused, updated_at';
+const ENTITY_TABLES = { place: 'places', path: 'paths' };
 
 export function generateId(prefix) {
   return `${prefix}_${randomUUID().slice(0, 8)}`;
 }
 
-// MariaDB renvoie les colonnes JSON sous forme de texte, MySQL sous forme d'objet : on accepte les deux.
-const readJson = (value) => (typeof value === 'string' ? JSON.parse(value) : value);
-
 const toPlace = (row) => ({
   id: row.id,
   name: row.name,
   category: row.category,
-  aliases: readJson(row.aliases),
+  aliases: readJsonColumn(row.aliases),
   description: row.description,
   access: row.access,
   longitude: row.longitude,
   latitude: row.latitude,
-  entrances: readJson(row.entrances),
+  entrances: readJsonColumn(row.entrances),
 });
 
 const toPath = (row) => ({
@@ -40,7 +42,7 @@ const toPath = (row) => ({
   type: row.type,
   name: row.name,
   isFloodProne: Boolean(row.is_flood_prone),
-  coordinates: readJson(row.coordinates),
+  coordinates: readJsonColumn(row.coordinates),
 });
 
 const toSettings = (row) => ({
@@ -48,6 +50,8 @@ const toSettings = (row) => ({
   center: [row.center_longitude, row.center_latitude],
   zoom: row.zoom,
   isDemo: Boolean(row.is_demo),
+  perimeter: readJsonColumn(row.perimeter),
+  contributionsPaused: Boolean(row.contributions_paused),
   updatedAt: row.updated_at.toISOString(),
 });
 
@@ -154,9 +158,18 @@ export async function listPlaces(executor, { page, limit, sortBy, order, categor
   return { items: rows.map(toPlace), total };
 }
 
-export async function findPlace(executor, placeId) {
-  const [rows] = await executor.execute(`SELECT ${PLACE_COLUMNS} FROM places WHERE id = ?`, [placeId]);
+// isLocking : lecture verrouillée (FOR UPDATE) pour une modification lue puis réécrite dans une transaction.
+export async function findPlace(executor, placeId, { isLocking = false } = {}) {
+  const lockClause = isLocking ? ' FOR UPDATE' : '';
+  const [rows] = await executor.execute(`SELECT ${PLACE_COLUMNS} FROM places WHERE id = ?${lockClause}`, [placeId]);
   return rows.length ? toPlace(rows[0]) : null;
+}
+
+// Date de dernière modification d'un lieu ou d'un chemin : sert à détecter un conflit de relecture.
+export async function readEntityVersion(executor, entityType, entityId) {
+  if (!Object.hasOwn(ENTITY_TABLES, entityType)) return null;
+  const [rows] = await executor.execute(`SELECT updated_at FROM ${ENTITY_TABLES[entityType]} WHERE id = ?`, [entityId]);
+  return rows.length ? rows[0].updated_at : null;
 }
 
 export async function insertPlace(executor, place, now = new Date()) {
@@ -230,7 +243,9 @@ async function readCreationDates(executor, table) {
 
 // Remplace tout le contenu de la carte en une transaction. « transform » reçoit la carte actuelle, lignes
 // verrouillées, et renvoie la nouvelle : vider la carte, charger la démonstration, importer OpenStreetMap.
-export async function rewriteCampusMap(pool, transform, now = new Date()) {
+// Le périmètre et la suspension des contributions ne font pas partie du contenu : ils ne changent pas.
+// L'opération laisse une seule ligne « bulk » dans l'historique.
+export async function rewriteCampusMap(pool, transform, now = new Date(), actor = COMMAND_ACTOR) {
   return withTransaction(pool, async (connection) => {
     const next = await transform(await readCampusMap(connection, { isLocking: true }));
     // Les lignes conservées gardent leur date de création : seules les nouvelles prennent « now ».
@@ -248,6 +263,7 @@ export async function rewriteCampusMap(pool, transform, now = new Date()) {
        ON DUPLICATE KEY UPDATE name = ?, center_longitude = ?, center_latitude = ?, zoom = ?, is_demo = ?, updated_at = ?`,
       [...settingsValues, ...settingsValues],
     );
+    await recordMapChange(connection, { entityType: 'map', action: 'bulk', actor }, now);
     return readCampusMap(connection);
   });
 }
@@ -277,4 +293,25 @@ export async function initialiseCampusMap(pool, { isProduction, buildDemoCampusM
     await rewriteCampusMap(pool, () => buildDemoCampusMap(), now);
     return 'demo';
   });
+}
+
+// À faire après le premier démarrage (ligne de réglages créée). Inscrit une ligne en masse à l'historique.
+export async function setPerimeter(pool, perimeter, now = new Date(), actor = COMMAND_ACTOR) {
+  return withTransaction(pool, async (connection) => {
+    const [result] = await connection.execute('UPDATE campus_settings SET perimeter = ?, updated_at = ? WHERE id = 1', [
+      toJsonColumn(perimeter),
+      now,
+    ]);
+    if (result.affectedRows === 0) {
+      throw new Error("Réglages de la carte absents : démarrez le serveur une fois avant d'importer le périmètre");
+    }
+    await recordMapChange(connection, { entityType: 'map', action: 'bulk', actor }, now);
+  });
+}
+
+export async function setContributionsPaused(executor, isPaused, now = new Date()) {
+  await executor.execute('UPDATE campus_settings SET contributions_paused = ?, updated_at = ? WHERE id = 1', [
+    isPaused,
+    now,
+  ]);
 }

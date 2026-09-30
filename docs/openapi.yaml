@@ -164,6 +164,13 @@ components:
             zoom: { type: number }
             isDemo: { type: boolean }
             updatedAt: { type: string, format: date-time }
+            perimeter:
+              description: Contour du campus ([[longitude, latitude], …]), vide tant qu'il n'est pas importé.
+              oneOf:
+                - type: 'null'
+                - type: array
+                  items: { type: array, items: { type: number }, minItems: 2, maxItems: 2 }
+            contributionsPaused: { type: boolean }
         places: { type: array, items: { $ref: '#/components/schemas/Place' } }
         paths: { type: array, items: { $ref: '#/components/schemas/Path' } }
     PaginationMeta:
