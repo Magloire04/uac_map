@@ -107,7 +107,7 @@ const widthByZoom = (minimum, maximum) => [
 ];
 
 function addMapLayers() {
-  for (const sourceId of ['paths', 'route', 'user', 'origin', 'entrances', 'draft']) {
+  for (const sourceId of ['paths', 'route', 'user', 'origin', 'entrances', 'draft', 'own-proposals']) {
     map.addSource(sourceId, { type: 'geojson', data: EMPTY_COLLECTION });
   }
   const roundLine = { 'line-cap': 'round', 'line-join': 'round' };
@@ -185,6 +185,26 @@ function addMapLayers() {
     source: 'draft',
     filter: ['==', ['geometry-type'], 'Point'],
     paint: { 'circle-radius': 5, 'circle-color': '#f59e0b', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
+  });
+  map.addLayer({
+    id: 'own-proposals-line',
+    type: 'line',
+    source: 'own-proposals',
+    filter: ['==', ['geometry-type'], 'LineString'],
+    layout: roundLine,
+    paint: { 'line-color': '#7c3aed', 'line-width': 3, 'line-dasharray': [1.5, 1.5] },
+  });
+  map.addLayer({
+    id: 'own-proposals-points',
+    type: 'circle',
+    source: 'own-proposals',
+    filter: ['==', ['geometry-type'], 'Point'],
+    paint: {
+      'circle-radius': 7,
+      'circle-color': 'rgba(124, 58, 237, 0.15)',
+      'circle-stroke-color': '#7c3aed',
+      'circle-stroke-width': 2,
+    },
   });
   map.addLayer({
     id: 'entrance-points',

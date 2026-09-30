@@ -140,6 +140,28 @@
       </form>
     </dialog>
 
+    <dialog id="report-dialog">
+      <form id="report-form" method="dialog">
+        <h3>Signaler une erreur</h3>
+        <p class="category-label" id="report-target"></p>
+        <label class="field"
+          ><span>Qu'est-ce qui ne va pas ?</span
+          ><textarea
+            name="message"
+            maxlength="500"
+            required
+            placeholder="Ex. le portail est fermé le week-end, ce chemin n'existe plus…"
+          ></textarea>
+        </label>
+        <p class="note">N'écrivez aucune donnée personnelle.</p>
+        <p class="error-message" id="report-error"></p>
+        <div class="actions">
+          <button class="button primary" type="submit">Envoyer</button>
+          <button class="button" type="button" data-close-dialog>Annuler</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="place-dialog">
       <form id="place-form" method="dialog">
         <h3 id="place-dialog-title">Nouveau lieu</h3>
