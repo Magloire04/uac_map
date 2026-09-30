@@ -93,3 +93,19 @@ databaseTest('révoquer un relecteur ferme sa session et refuse son jeton', asyn
   assert.equal(response.status, 401);
   assert.equal((await response.json()).error.code, 'INVALID_TOKEN');
 });
+
+databaseTest('une connexion de relecteur ne remet pas à zéro le compteur d’essais', async () => {
+  const { token } = await createReviewer(database, 'Curieux');
+  await database.execute('DELETE FROM failed_login_attempts');
+  try {
+    for (let attempt = 0; attempt < 9; attempt += 1) {
+      assert.equal((await openSession('mauvais-jeton')).response.status, 401);
+    }
+    assert.equal((await openSession(token)).response.status, 201);
+    const blocked = await openSession(ADMIN_TOKEN);
+    assert.equal(blocked.response.status, 429);
+    assert.equal((await blocked.response.json()).error.code, 'TOO_MANY_ATTEMPTS');
+  } finally {
+    await database.execute('DELETE FROM failed_login_attempts');
+  }
+});

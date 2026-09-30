@@ -118,7 +118,7 @@ components:
           maxItems: 15
           items: { type: string, maxLength: 60 }
         description: { type: string, maxLength: 1000 }
-        access: { type: string, maxLength: 300, description: Étage, salles, horaires. }
+        access: { type: string, maxLength: 300, description: 'Étage, salles, horaires.' }
         longitude: { type: number }
         latitude: { type: number }
         entrances:
@@ -207,7 +207,7 @@ components:
           properties:
             expiresAt: { type: string, format: date-time }
             role: { type: string, enum: [admin, reviewer] }
-            name: { type: [string, 'null'], description: Nom du relecteur, vide pour l'administrateur. }
+            name: { type: [string, 'null'], description: "Nom du relecteur, vide pour l'administrateur." }
     DevicePosition:
       type: object
       required: [longitude, latitude, accuracy, ageMs]
@@ -215,7 +215,7 @@ components:
       properties:
         longitude: { type: number, minimum: -180, maximum: 180 }
         latitude: { type: number, minimum: -90, maximum: 90 }
-        accuracy: { type: number, minimum: 0, maximum: 50, description: Précision annoncée, en mètres. }
+        accuracy: { type: number, minimum: 0, maximum: 50, description: 'Précision annoncée, en mètres.' }
         ageMs: { type: number, maximum: 120000, description: Âge de la position selon l'horloge du téléphone. }
     ProposalInput:
       type: object

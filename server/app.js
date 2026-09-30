@@ -159,7 +159,8 @@ export function createApp({
         logSecurityEvent('admin_login_failed', { requestId: request.requestId }, 'warn');
         return sendError(response, 401, 'INVALID_TOKEN', "Jeton d'accès incorrect");
       }
-      await clearFailedAttempts(database, clientDigest);
+      // Seule une connexion administrateur remet le compteur à zéro : il protège aussi ADMIN_TOKEN.
+      if (identity.actor.kind === 'admin') await clearFailedAttempts(database, clientDigest);
       const { sessionId, expiresAt } = await createAdminSession(
         database,
         identity.tokenFingerprint,
