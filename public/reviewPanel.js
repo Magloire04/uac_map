@@ -10,6 +10,7 @@ import { html } from '/safeHtml.js';
 import { createProposalsTab } from '/proposalsTab.js';
 import { createContributorsTab } from '/contributorsTab.js';
 import { createHistoryTab } from '/historyTab.js';
+import { createAdministrationTab } from '/administrationTab.js';
 
 const COUNTER_REFRESH_MS = 60 * 1000;
 const STATUS_CHANGE_MESSAGES = {
@@ -64,7 +65,12 @@ export function createReviewPanel(context, { callStaffApi, getStaffSession, onRe
     fitTo: (coordinates) => context.fitCoordinates(coordinates),
   };
 
-  const tabs = [createProposalsTab(panel), createContributorsTab(panel), createHistoryTab(panel)];
+  const tabs = [
+    createProposalsTab(panel),
+    createContributorsTab(panel),
+    createHistoryTab(panel),
+    createAdministrationTab(panel),
+  ];
   const visibleTabs = () => tabs.filter((tab) => tab.isVisible?.() ?? true);
   const currentTab = () => tabs.find((tab) => tab.id === currentTabId);
 

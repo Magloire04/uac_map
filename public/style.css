@@ -762,6 +762,19 @@ body.is-picking-point #map {
   background: #fef2f2;
   white-space: pre-wrap;
 }
+.switch-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+}
+.token-value {
+  width: 100%;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
 /* Grand écran : le panneau du bas occupe la gauche (10 px + 420 px), la barre se décale à sa droite. */
 @media (min-width: 760px) {
   body.has-open-sheet .collect-bar {
