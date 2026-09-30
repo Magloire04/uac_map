@@ -93,6 +93,7 @@ export function createMapEditor(context) {
     collectBar.dataset.mode = profile.mode;
     context.toggleSatellite(true);
     context.renderEntrances();
+    context.renderPerimeter();
     render();
   }
 
@@ -114,6 +115,7 @@ export function createMapEditor(context) {
     selectElement('#collect-bar').hidden = true;
     setSourceData('draft', toFeatureCollection([]));
     context.renderEntrances();
+    context.renderPerimeter();
     closedProfile.onClose?.();
   }
 

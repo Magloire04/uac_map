@@ -16,6 +16,7 @@ const pathUrl = (pathId) => `/paths/${encodeURIComponent(pathId)}`;
 
 export function initCollectMode(context, editor) {
   const { state, showToast } = context;
+  let staffSession = null; // { expiresAt, role: 'admin' | 'reviewer', name }
 
   // Toute réponse 401 met fin au mode collecte : la session a expiré ou a été révoquée.
   async function callStaffApi(method, path, body) {
@@ -45,13 +46,40 @@ export function initCollectMode(context, editor) {
     </p>`;
   }
 
+  function renderContributionWarnings() {
+    const settings = state.campusMap?.settings;
+    if (!settings) return '';
+    const perimeterHelp =
+      staffSession?.role === 'admin'
+        ? html`Lancez <code>npm run import-perimeter</code> sur le serveur.`
+        : "Prévenez l'administrateur.";
+    return html`
+      ${
+        settings.perimeter
+          ? ''
+          : html`<p class="warning">
+              Périmètre du campus non importé : toute proposition des contributeurs est refusée. ${perimeterHelp}
+            </p>`
+      }
+      ${
+        settings.contributionsPaused
+          ? html`<p class="warning">Contributions suspendues : les contributeurs ne peuvent rien envoyer.</p>`
+          : ''
+      }
+    `;
+  }
+
   const staffProfile = {
     mode: 'collect',
-    title: 'MODE COLLECTE',
+    get title() {
+      return staffSession?.role === 'reviewer'
+        ? `MODE COLLECTE · relecteur ${staffSession.name}`
+        : 'MODE COLLECTE · administrateur';
+    },
     tools: ['place', 'draw', 'walk', 'edit'],
     canManageExisting: true,
     placeDialogTitle: (placeId) => (placeId ? 'Modifier le lieu' : 'Nouveau lieu'),
-    renderIdlePanel: renderNetworkSummary,
+    renderIdlePanel: () => html`${renderNetworkSummary()}${renderContributionWarnings()}`,
     onPlaceClick: (place) => editor.openPlaceDialog(place),
     actions: {
       savePlace: (placeBody, placeId) =>
@@ -64,14 +92,16 @@ export function initCollectMode(context, editor) {
       deletePath: (pathId) => writeAndReload('DELETE', pathUrl(pathId), undefined, 'Chemin supprimé'),
     },
     onClose: () => {
+      staffSession = null;
       selectElement('#menu-clear-map').hidden = true;
       selectElement('#menu-logout').hidden = true;
     },
   };
 
-  function enterCollectMode() {
+  function enterCollectMode(session) {
+    staffSession = session;
     editor.open(staffProfile);
-    selectElement('#menu-clear-map').hidden = false;
+    selectElement('#menu-clear-map').hidden = session.role !== 'admin';
     selectElement('#menu-logout').hidden = false;
   }
 
@@ -81,8 +111,8 @@ export function initCollectMode(context, editor) {
     selectElement('#menu-dialog').close();
     if (state.mode === 'collect') return;
     try {
-      await callApi('GET', '/admin/session');
-      enterCollectMode();
+      const { data } = await callApi('GET', '/admin/session');
+      enterCollectMode(data);
     } catch {
       selectElement('#login-error').textContent = '';
       selectElement('#login-dialog').showModal();
@@ -93,10 +123,10 @@ export function initCollectMode(context, editor) {
     event.preventDefault();
     const tokenInput = selectElement('#token-input');
     try {
-      await callApi('POST', '/admin/session', { token: tokenInput.value.trim() });
+      const { data } = await callApi('POST', '/admin/session', { token: tokenInput.value.trim() });
       tokenInput.value = '';
       selectElement('#login-dialog').close();
-      enterCollectMode();
+      enterCollectMode(data);
     } catch (error) {
       selectElement('#login-error').textContent = error.message;
     }

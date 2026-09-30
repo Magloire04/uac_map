@@ -107,10 +107,16 @@ const widthByZoom = (minimum, maximum) => [
 ];
 
 function addMapLayers() {
-  for (const sourceId of ['paths', 'route', 'user', 'origin', 'entrances', 'draft', 'own-proposals']) {
+  for (const sourceId of ['paths', 'route', 'user', 'origin', 'entrances', 'draft', 'own-proposals', 'perimeter']) {
     map.addSource(sourceId, { type: 'geojson', data: EMPTY_COLLECTION });
   }
   const roundLine = { 'line-cap': 'round', 'line-join': 'round' };
+  map.addLayer({
+    id: 'perimeter-line',
+    type: 'line',
+    source: 'perimeter',
+    paint: { 'line-color': '#1c1917', 'line-width': 2, 'line-dasharray': [4, 2], 'line-opacity': 0.7 },
+  });
   map.addLayer({
     id: 'paths-casing',
     type: 'line',
@@ -324,6 +330,7 @@ function applyCampusMap(campusMap) {
   if (state.selectedPlace) state.selectedPlace = findPlaceById(state.selectedPlace.id);
   if (state.destination) state.destination = findPlaceById(state.destination.id);
   renderEntrances();
+  renderPerimeter();
   document.dispatchEvent(new CustomEvent('campus-map-loaded'));
 }
 
@@ -370,6 +377,13 @@ function renderEntrances() {
   }
   const place = state.destination || state.selectedPlace;
   setSourceData('entrances', toFeatureCollection(place ? toEntranceFeatures(place) : []));
+}
+
+// Contour du campus, montré dans les modes d'édition : c'est la limite des contributions.
+function renderPerimeter() {
+  const isEditing = state.mode === 'collect' || state.mode === 'contribution';
+  const perimeter = isEditing ? state.campusMap?.settings?.perimeter : null;
+  setSourceData('perimeter', toFeatureCollection(perimeter ? [toLineFeature(perimeter)] : []));
 }
 
 // ---------- Recherche ----------
@@ -945,6 +959,7 @@ map.on('load', async () => {
     showToast,
     reloadCampusMap: loadCampusMap,
     renderEntrances,
+    renderPerimeter,
     toggleSatellite,
     startGps,
     stopGpsIfUnused,
