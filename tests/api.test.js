@@ -196,10 +196,37 @@ databaseTest('renvoie 404 ROUTE_NOT_FOUND sur une route inconnue', async () => {
   assert.equal((await response.json()).error.code, 'ROUTE_NOT_FOUND');
 });
 
-databaseTest("sert l'appli, le code partagé et la bibliothèque de carte", async () => {
-  for (const path of ['/', '/shared/graph.js', '/vendor/maplibre/maplibre-gl.mjs']) {
+databaseTest("sert l'appli, le code partagé, les bibliothèques de carte et le fond", async () => {
+  for (const path of [
+    '/',
+    '/shared/graph.js',
+    '/shared/basemap.js',
+    '/vendor/maplibre/maplibre-gl.mjs',
+    '/vendor/pmtiles/pmtiles.js',
+    '/vendor/protomaps-basemaps/index.js',
+    '/basemap/sprites/light.json',
+    '/basemap/sprites/light@2x.png',
+    '/basemap/fonts/Noto%20Sans%20Regular/0-255.pbf',
+    '/basemap/fonts/Noto%20Sans%20Italic/7680-7935.pbf',
+  ]) {
     assert.equal((await fetch(baseUrl + path)).status, 200, path);
   }
+});
+
+databaseTest('sert le fichier PMTiles du fond de carte', async () => {
+  const response = await fetch(`${baseUrl}/basemap/campus.pmtiles`);
+  assert.equal(response.status, 200);
+  const header = Buffer.from(await response.arrayBuffer())
+    .subarray(0, 7)
+    .toString('ascii');
+  assert.equal(header, 'PMTiles');
+});
+
+databaseTest("n'autorise plus que l'imagerie satellite comme domaine extérieur", async () => {
+  const policy = (await callApi('/health')).headers.get('content-security-policy');
+  assert.doesNotMatch(policy, /openstreetmap/);
+  assert.match(policy, /img-src 'self' data: blob: https:\/\/server\.arcgisonline\.com;/);
+  assert.match(policy, /connect-src 'self' https:\/\/server\.arcgisonline\.com;/);
 });
 
 databaseTest('chaque route du contrat OpenAPI existe dans le serveur', async () => {
