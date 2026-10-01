@@ -3,9 +3,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 // Service worker : l'appli et la dernière version de la carte restent disponibles sans réseau.
-const APP_CACHE = 'uac-map-app-v3';
-// v2 : la v1 a pu garder les images « Access blocked » d'OpenStreetMap, servies en 200 sans Referer.
-const TILE_CACHE = 'uac-map-tiles-v2';
+// Changer APP_CACHE quand public/basemap est régénéré : le fichier du fond fait partie de l'appli.
+const APP_CACHE = 'uac-map-app-v4';
+// v3 : le cache ne garde plus que l'imagerie satellite ; la v2 contenait les tuiles OpenStreetMap.
+const TILE_CACHE = 'uac-map-tiles-v3';
 const MAX_CACHED_TILES = 1500;
 const APP_SHELL = [
   '/',
@@ -32,12 +33,20 @@ const APP_SHELL = [
   '/shared/instructions.js',
   '/shared/presence.js',
   '/shared/proposalDiff.js',
+  '/shared/basemap.js',
+  '/basemap/campus.pmtiles',
+  '/basemap/sprites/light.json',
+  '/basemap/sprites/light.png',
+  '/basemap/sprites/light@2x.json',
+  '/basemap/sprites/light@2x.png',
   '/vendor/maplibre/maplibre-gl.mjs',
   '/vendor/maplibre/maplibre-gl-shared.mjs',
   '/vendor/maplibre/maplibre-gl-worker.mjs',
   '/vendor/maplibre/maplibre-gl.css',
+  '/vendor/pmtiles/pmtiles.js',
+  '/vendor/protomaps-basemaps/index.js',
 ];
-const TILE_HOSTS = ['tile.openstreetmap.org', 'server.arcgisonline.com'];
+const TILE_HOSTS = ['server.arcgisonline.com'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
