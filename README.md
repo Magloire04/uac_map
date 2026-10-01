@@ -5,7 +5,7 @@
 
 Carte et guidage piéton du campus de l'Université d'Abomey-Calavi (UAC). On cherche « scolarité », « BU » ou « amphi 1000 », et l'appli trace le chemin à pied jusqu'à la bonne porte, avec des consignes en français et un guidage GPS. Elle s'ouvre dans le navigateur du téléphone, sans installation, et reste utilisable sans réseau une fois la carte chargée.
 
-**En ligne :** [uacmap.bytechnum.com](https://uacmap.bytechnum.com) · version 0.3.1
+**En ligne :** [uacmap.bytechnum.com](https://uacmap.bytechnum.com) · version 0.4.0
 
 | Itinéraire                                                                 | Mode collecte                                                   |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -67,17 +67,18 @@ Sous Windows, cloner avec `git clone -c core.autocrlf=input …` : Prettier exig
 
 ## Commandes
 
-| Commande                     | Rôle                                                              |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `npm run dev`                | Serveur relancé à chaque modification                             |
-| `npm run check`              | Lint, formatage et tests, comme la CI                             |
-| `npm test`                   | Tests unitaires et d'intégration (base de `.env.test`)            |
-| `npm run database:migrate`   | Applique les migrations manquantes                                |
-| `npm run demo`               | Recharge la carte de démonstration                                |
-| `npm run reset -- --oui`     | Vide la carte avant le relevé réel                                |
-| `npm run import-osm`         | Importe chemins, bâtiments nommés et entrées depuis OpenStreetMap |
-| `npm run import-perimeter`   | Importe le contour du campus, qui limite les contributions        |
-| `npm run purge-contributors` | Supprime les contributeurs inactifs depuis 12 mois (chaque mois)  |
+| Commande                     | Rôle                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| `npm run dev`                | Serveur relancé à chaque modification                                                |
+| `npm run check`              | Lint, formatage et tests, comme la CI                                                |
+| `npm test`                   | Tests unitaires et d'intégration (base de `.env.test`)                               |
+| `npm run database:migrate`   | Applique les migrations manquantes                                                   |
+| `npm run demo`               | Recharge la carte de démonstration                                                   |
+| `npm run reset -- --oui`     | Vide la carte avant le relevé réel                                                   |
+| `npm run import-osm`         | Importe chemins, bâtiments nommés et entrées depuis OpenStreetMap                    |
+| `npm run import-perimeter`   | Importe le contour du campus, qui limite les contributions                           |
+| `npm run purge-contributors` | Supprime les contributeurs inactifs depuis 12 mois (chaque mois)                     |
+| `npm run build-basemap`      | Régénère le fond de carte (campus et 3 km autour), à la main, avec l'outil `pmtiles` |
 
 ## Tester sur un téléphone
 
@@ -93,7 +94,8 @@ Hébergement cPanel avec Node.js 24 et MariaDB 11.4. Seule la branche `main` est
 ## Architecture
 
 ```
-public/   appli web : navigation, éditeur de carte, modes collecte et contribution, relecture, service worker
+public/   appli web : navigation, éditeur de carte, modes collecte et contribution, relecture, service worker,
+          fond de carte auto-hébergé (public/basemap)
 shared/   code commun au navigateur et au serveur : géométrie, présence, graphe piéton et A*, recherche, consignes
 server/   API Express, accès à MariaDB (server/database/), journal de sécurité, import OpenStreetMap
 scripts/  commandes de maintenance, déploiement et contrôles de CI
@@ -116,7 +118,7 @@ Signaler une vulnérabilité : [SECURITY.md](SECURITY.md).
 ## Limites connues
 
 - Précision GPS : environ 5 m à découvert, bien moins sous les arbres. Le cercle de précision est affiché ; les QR codes donnent un départ exact.
-- Fonds de carte appelés directement chez OpenStreetMap et Esri : prévoir un fond auto-hébergé avant une diffusion à tous les étudiants.
+- Fond de plan figé à la date de son extrait OpenStreetMap (`npm run build-basemap` pour le rafraîchir) et limité au campus et 3 km autour. La vue satellite, réservée aux modes collecte et contribution, vient d'Esri.
 - Un navigateur permet de simuler une position : la relecture, les limites d'envoi et le blocage traitent les abus.
 - Pas encore de plans d'intérieur ni d'étages.
 
@@ -128,5 +130,5 @@ Gitflow : `main` reçoit les versions publiées, `develop` le travail en cours. 
 
 Code sous [Mozilla Public License 2.0](LICENSE) : utilisable partout, y compris dans un produit fermé, mais toute modification d'un fichier du projet reste publiée sous la même licence.
 
-- Fond de plan et données importées : © contributeurs [OpenStreetMap](https://www.openstreetmap.org/copyright), licence ODbL. Une carte du campus construite à partir d'un import OSM et diffusée publiquement l'est sous ODbL.
+- Fond de plan (`public/basemap`) et données importées : © contributeurs [OpenStreetMap](https://www.openstreetmap.org/copyright), licence ODbL, via le schéma [Protomaps](https://protomaps.com) ; polices Noto Sans sous licence OFL, icônes sous licence MIT. Une carte du campus construite à partir d'un import OSM et diffusée publiquement l'est sous ODbL.
 - Imagerie satellite : © Esri, Maxar, Earthstar Geographics, selon les conditions d'utilisation d'Esri.

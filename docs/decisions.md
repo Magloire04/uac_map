@@ -60,3 +60,15 @@ Détail : [specs/2026-09-30-contribution-ouverte.md](specs/2026-09-30-contributi
 ## 2026-10-01 · Referer envoyé aux serveurs de tuiles
 
 `Referrer-Policy: strict-origin-when-cross-origin` remplace `same-origin`. Les serveurs de tuiles OpenStreetMap refusent une requête faite depuis une page web sans en-tête `Referer` et renvoient l'image « Access blocked ». Seule l'origine `https://uacmap.bytechnum.com/` part vers un autre domaine, jamais le chemin ni les paramètres de l'adresse (`?ici=…`, `?contribuer=…`). Le cache des tuiles du service worker passe en v2 pour oublier les images de blocage déjà enregistrées.
+
+## 2026-10-01 · Fond de carte auto-hébergé
+
+Détail : [specs/2026-10-01-fond-de-carte-auto-heberge.md](specs/2026-10-01-fond-de-carte-auto-heberge.md).
+
+- **Fichier entier plutôt que lecture par morceaux** : l'extrait du campus pèse moins de 2 Mo. Le télécharger une fois et le lire en mémoire évite les requêtes partielles, que le service worker ne sait pas garder, et rend tout le fond disponible hors ligne.
+- **Style produit dans le navigateur** : `@protomaps/basemaps` génère les couches au chargement, sans étape de construction, comme le reste de l'appli.
+- **Sans la couche des lieux OpenStreetMap** : seuls les lieux de l'application, relus par l'équipe, apparaissent.
+- **Fichier versionné dans le dépôt** : `git pull` le met en production ; une régénération alourdit le dépôt d'environ 2 Mo, ce qui reste rare.
+- **Satellite réservé aux modes d'édition** : il sert à tracer les allées ; les visiteurs n'appellent plus aucun domaine extérieur.
+
+**À revoir** : la vue satellite appelle Esri sans clé ; acceptable avec le seul trafic de l'équipe et des contributeurs.
