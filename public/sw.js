@@ -4,7 +4,8 @@
 
 // Service worker : l'appli et la dernière version de la carte restent disponibles sans réseau.
 const APP_CACHE = 'uac-map-app-v3';
-const TILE_CACHE = 'uac-map-tiles-v1';
+// v2 : la v1 a pu garder les images « Access blocked » d'OpenStreetMap, servies en 200 sans Referer.
+const TILE_CACHE = 'uac-map-tiles-v2';
 const MAX_CACHED_TILES = 1500;
 const APP_SHELL = [
   '/',

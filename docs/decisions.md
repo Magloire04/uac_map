@@ -56,3 +56,7 @@ Détail : [specs/2026-09-30-contribution-ouverte.md](specs/2026-09-30-contributi
 - **Interface** : un module par onglet du panneau de relecture, et un éditeur (`mapEditor.js`) partagé par le mode collecte et la contribution.
 
 **À revoir** : le compteur d'échecs de connexion est partagé par adresse IP entre l'administrateur et les relecteurs ; derrière le Wi-Fi du campus, dix échecs bloquent tout le monde 15 minutes. Un compteur par type de jeton serait à étudier si cela arrive.
+
+## 2026-10-01 · Referer envoyé aux serveurs de tuiles
+
+`Referrer-Policy: strict-origin-when-cross-origin` remplace `same-origin`. Les serveurs de tuiles OpenStreetMap refusent une requête faite depuis une page web sans en-tête `Referer` et renvoient l'image « Access blocked ». Seule l'origine `https://uacmap.bytechnum.com/` part vers un autre domaine, jamais le chemin ni les paramètres de l'adresse (`?ici=…`, `?contribuer=…`). Le cache des tuiles du service worker passe en v2 pour oublier les images de blocage déjà enregistrées.
