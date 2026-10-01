@@ -496,7 +496,22 @@ export function createMapEditor(context) {
     }
     coordinates[0] = snapToNearbyNetwork(coordinates[0]);
     coordinates[coordinates.length - 1] = snapToNearbyNetwork(coordinates[coordinates.length - 1]);
-    const message = await profile.actions.savePath({ ...pathSettings, coordinates });
+    const savingProfile = profile;
+    let message;
+    try {
+      message = await savingProfile.actions.savePath({ ...pathSettings, coordinates });
+    } catch (error) {
+      // Envoi refusé (réseau, limite, position…) : la trace passe dans l'outil de tracé, où « Enregistrer » permet de
+      // réessayer. L'erreur remonte pour que son message s'affiche.
+      if (profile === savingProfile) {
+        if (activeTool !== 'draw') profile.extraTools?.[activeTool]?.onDeselect?.();
+        activeTool = 'draw';
+        drawnPoints = coordinates;
+        selectedPath = null;
+        render();
+      }
+      throw error;
+    }
     showToast(`${message} (${coordinates.length} points)`);
   }
 
