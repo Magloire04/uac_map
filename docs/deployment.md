@@ -169,12 +169,12 @@ La commande doit afficher « Périmètre enregistré : N points. ». Si Overpass
 
 Dans l'appli, mode collecte avec `ADMIN_TOKEN`, À relire > Administration :
 
-1. Créer le lien public (« Lien public du site »), puis imprimer son affiche (menu > Imprimer les QR codes).
+1. Créer le lien public : saisir un libellé, cocher « Lien public », puis « Créer le lien ». Imprimer ensuite son affiche « Contribuez à la carte », en tête de la page ouverte par menu > Imprimer les QR codes « Vous êtes ici ».
 2. Créer chaque relecteur. Son jeton ne s'affiche qu'une fois : le transmettre par un canal sûr.
 
 ### 6.3 Purge mensuelle des contributeurs inactifs
 
-Par l'écran Tâches Cron de cPanel (le plus sûr) :
+Par l'écran Tâches Cron de cPanel (le plus sûr). Avant d'ajouter la purge, copier dans un fichier daté les lignes de la liste des tâches existantes, affichée en bas de cet écran : elle pourra être rétablie en cas d'erreur. Puis ajouter la tâche :
 
 - Fréquence : `0 4 1 * *`
 - Commande : `/bin/bash -c 'source /home/<compte>/nodevenv/uac_map/24/bin/activate && cd /home/<compte>/uac_map && npm run purge-contributors' >> /home/<compte>/backups/uac_map/purge.log 2>&1`

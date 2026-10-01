@@ -96,18 +96,18 @@ Depuis un endroit éloigné du campus, l'appli le détecte et propose de toucher
 
 L'équipe relève la carte dans le mode collecte (menu > Mode collecte). L'administrateur s'y connecte avec `ADMIN_TOKEN`, chaque relecteur avec le jeton personnel que l'administrateur lui a créé.
 
-1. Videz la démonstration (menu > Vider la carte) ou lancez `npm run import-osm` pour partir de ce qu'OpenStreetMap connaît déjà.
+1. Videz la démonstration (administrateur : menu > Mode collecte > menu > Vider la carte) ou lancez `npm run import-osm` pour partir de ce qu'OpenStreetMap connaît déjà.
 2. **Tracer un chemin** sur le fond satellite. Un point posé près d'un chemin existant s'y accroche : c'est ce qui relie le réseau. Tracez aussi les raccourcis réellement empruntés et marquez escaliers et passages inondables.
 3. **Enregistrer en marchant** les sentiers cachés sous les arbres (seuls les relevés GPS à ± 15 m ou mieux sont gardés).
 4. **Ajouter un lieu** : centre du bâtiment, nom, catégorie, sigles et surnoms, puis chaque porte avec une note (« porte côté parking, 1er étage à gauche »).
 5. **Vérifier** en demandant des itinéraires entre lieux éloignés : un trajet absurde signale presque toujours deux chemins non raccordés.
-6. **Imprimer les QR codes** (menu > Imprimer les QR codes) pour les portails, carrefours et halls.
+6. **Imprimer les QR codes** (menu > Imprimer les QR codes « Vous êtes ici ») pour les portails, carrefours et halls.
 
 ## Ouvrir la contribution
 
 1. Importer le périmètre du campus : `npm run import-perimeter`. Sans lui, toute proposition est refusée.
 2. Mode collecte (administrateur) > À relire > Administration : créer un lien public, puis les relecteurs. Le jeton d'un relecteur ne s'affiche qu'une fois.
-3. Imprimer l'affiche « Contribuez à la carte » (menu > Imprimer les QR codes) et la poser sur le campus.
+3. Imprimer l'affiche « Contribuez à la carte », en tête de la page ouverte par menu > Imprimer les QR codes « Vous êtes ici », et la poser sur le campus.
 4. Les propositions arrivent dans « À relire ». Accepter publie, refuser envoie une note au contributeur. Un contributeur fiable peut recevoir la confiance : ses ajouts sont alors publiés directement. Un téléphone qui abuse se bloque en un geste.
 5. Toute modification publiée entre dans l'historique et peut être annulée, de la plus récente à la plus ancienne.
 
@@ -129,7 +129,7 @@ docs/      contrat OpenAPI, décisions d'architecture, spécifications, captures
 tests/     tests node:test
 ```
 
-Le serveur expose la carte complète ; le téléphone construit le graphe piéton (quelques millisecondes à l'échelle du campus) et calcule les itinéraires lui-même. La position de l'utilisateur ne quitte donc jamais son appareil.
+Le serveur expose la carte complète ; le téléphone construit le graphe piéton (quelques millisecondes à l'échelle du campus) et calcule les itinéraires lui-même. La position de l'utilisateur sert donc au calcul sur son téléphone ; elle n'en part qu'avec une proposition de contribution, pour vérifier la présence sur le campus, et n'est pas enregistrée.
 
 L'API est versionnée sous `/api/v1`. Son contrat de référence est [`docs/openapi.yaml`](docs/openapi.yaml), lisible dans [Swagger Editor](https://editor.swagger.io/) ou Redoc. Un test vérifie que chaque route du contrat existe dans le serveur.
 
