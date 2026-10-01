@@ -104,6 +104,8 @@ export function createMapEditor(context) {
     const closedProfile = profile;
     profile = null;
     activeTool = null;
+    // Un envoi encore en cours ne doit pas bloquer les outils à la prochaine ouverture.
+    isBusy = false;
     drawnPoints = [];
     selectedPath = null;
     placeDraft = null;
@@ -496,7 +498,22 @@ export function createMapEditor(context) {
     }
     coordinates[0] = snapToNearbyNetwork(coordinates[0]);
     coordinates[coordinates.length - 1] = snapToNearbyNetwork(coordinates[coordinates.length - 1]);
-    const message = await profile.actions.savePath({ ...pathSettings, coordinates });
+    const savingProfile = profile;
+    let message;
+    try {
+      message = await savingProfile.actions.savePath({ ...pathSettings, coordinates });
+    } catch (error) {
+      // Envoi refusé (réseau, limite, position…) : la trace passe dans l'outil de tracé, où « Enregistrer » permet de
+      // réessayer. L'erreur remonte pour que son message s'affiche.
+      if (profile === savingProfile) {
+        if (activeTool !== 'draw') profile.extraTools?.[activeTool]?.onDeselect?.();
+        activeTool = 'draw';
+        drawnPoints = coordinates;
+        selectedPath = null;
+        render();
+      }
+      throw error;
+    }
     showToast(`${message} (${coordinates.length} points)`);
   }
 
@@ -611,9 +628,12 @@ export function createMapEditor(context) {
   placeForm.addEventListener('submit', (event) => {
     event.preventDefault();
     if (!profile || !placeDraft) return;
+    const saveButton = selectElement('#place-save');
     runExclusive(async () => {
       readPlaceForm();
       const { id: placeId, pendingMapClick, ...placeBody } = placeDraft;
+      // Bouton grisé pendant l'envoi : sur un réseau lent, l'appui a bien été pris en compte.
+      saveButton.disabled = true;
       try {
         const message = await profile.actions.savePlace(placeBody, placeId);
         placeDialog.close();
@@ -622,6 +642,8 @@ export function createMapEditor(context) {
         if (activeTool === 'place') selectTool(null);
       } catch (error) {
         selectElement('#place-error').textContent = error.message;
+      } finally {
+        saveButton.disabled = false;
       }
     });
   });

@@ -6,6 +6,8 @@
 // et { error: { code, message, status } } en cas d'échec.
 
 export const API_BASE_URL = '/api/v1';
+// Au-delà, la requête est abandonnée : sur le réseau du campus, une réponse qui n'arrive pas ne doit pas bloquer l'écran.
+const REQUEST_TIMEOUT_MS = 30 * 1000;
 
 export class ApiRequestError extends Error {
   constructor(status, code, message) {
@@ -14,6 +16,10 @@ export class ApiRequestError extends Error {
     this.code = code;
   }
 }
+
+// Réseau coupé, serveur injoignable ou délai dépassé : même forme d'erreur qu'un refus de l'API, avec un message clair.
+const createNetworkError = () =>
+  new ApiRequestError(0, 'NETWORK_ERROR', 'Connexion impossible : vérifiez le réseau et réessayez.');
 
 export async function callApi(method, path, body) {
   let response;
@@ -27,13 +33,21 @@ export async function callApi(method, path, body) {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch {
-    // Réseau coupé ou serveur injoignable : même forme d'erreur qu'un refus de l'API, avec un message clair.
-    throw new ApiRequestError(0, 'NETWORK_ERROR', 'Connexion impossible : vérifiez le réseau et réessayez.');
+    throw createNetworkError();
   }
   if (response.status === 204) return null;
-  const payload = await response.json().catch(() => null);
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    // Corps qui n'est pas du JSON (page d'erreur du proxy) : seul le code HTTP compte. Toute autre erreur vient du
+    // réseau ou du délai, pendant la lecture du corps.
+    if (!(error instanceof SyntaxError)) throw createNetworkError();
+    payload = null;
+  }
   if (!response.ok) {
     const error = payload?.error;
     throw new ApiRequestError(

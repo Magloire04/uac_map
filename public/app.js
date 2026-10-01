@@ -46,7 +46,7 @@ const state = {
   origin: null, // { kind: 'gps' | 'place' | 'point', position, accuracy?, label? }
   route: null,
   routeOptions: { avoidStairs: false, avoidFlood: false },
-  gps: { watchId: null, lastFix: null, subscribers: new Set() },
+  gps: { watchId: null, lastFix: null, lastErrorCode: null, subscribers: new Set() },
   isAwaitingOrigin: false,
   navigation: { isActive: false, offRouteCount: 0, isFollowing: true, hasArrived: false },
   mode: null,
@@ -398,7 +398,7 @@ function renderEntrances() {
   const toEntranceFeatures = (place) =>
     place.entrances.map((entrance) => toPointFeature([entrance.longitude, entrance.latitude]));
   if (state.mode === 'collect' || state.mode === 'contribution') {
-    setSourceData('entrances', toFeatureCollection(state.campusMap.places.flatMap(toEntranceFeatures)));
+    setSourceData('entrances', toFeatureCollection((state.campusMap?.places ?? []).flatMap(toEntranceFeatures)));
     return;
   }
   const place = state.destination || state.selectedPlace;
@@ -712,6 +712,8 @@ function startGps() {
     return false;
   }
   if (state.gps.watchId === null) {
+    // Nouvelle demande : un refus précédent sera confirmé, ou levé, par sa réponse.
+    state.gps.lastErrorCode = null;
     state.gps.watchId = navigator.geolocation.watchPosition(handlePositionUpdate, handleGpsError, {
       enableHighAccuracy: true,
       maximumAge: 2000,
@@ -729,20 +731,28 @@ function stopGpsIfUnused() {
   }
 }
 
+// Le dernier code d'erreur reste dans state.gps.lastErrorCode jusqu'à la position suivante ; l'événement « gps-error »
+// prévient le mode contribution, qui l'explique dans son panneau.
 function handleGpsError(error) {
+  state.gps.lastErrorCode = error.code;
   if (error.code === error.PERMISSION_DENIED) {
+    // Le navigateur abandonne une surveillance refusée : startGps en relancera une à la prochaine demande.
+    navigator.geolocation.clearWatch(state.gps.watchId);
+    state.gps.watchId = null;
     showToast('Accès à la position refusé. Autorisez-le dans les réglages du navigateur.', 5000);
   }
   if (state.isAwaitingOrigin) {
     state.isAwaitingOrigin = false;
     startOriginPicking();
   }
+  document.dispatchEvent(new CustomEvent('gps-error'));
 }
 
 function handlePositionUpdate(geolocationPosition) {
   const position = [geolocationPosition.coords.longitude, geolocationPosition.coords.latitude];
   const accuracy = geolocationPosition.coords.accuracy;
   state.gps.lastFix = { position, accuracy, time: geolocationPosition.timestamp };
+  state.gps.lastErrorCode = null;
   setSourceData(
     'user',
     toFeatureCollection([

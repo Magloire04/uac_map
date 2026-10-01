@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 // Service worker : l'appli et la dernière version de la carte restent disponibles sans réseau.
-const APP_CACHE = 'uac-map-app-v2';
+const APP_CACHE = 'uac-map-app-v3';
 const TILE_CACHE = 'uac-map-tiles-v1';
 const MAX_CACHED_TILES = 1500;
 const APP_SHELL = [
@@ -11,7 +11,16 @@ const APP_SHELL = [
   '/index.html',
   '/style.css',
   '/app.js',
+  '/mapEditor.js',
   '/collectMode.js',
+  '/contributionMode.js',
+  '/proposalLabels.js',
+  '/reviewPanel.js',
+  '/panelWidgets.js',
+  '/proposalsTab.js',
+  '/contributorsTab.js',
+  '/historyTab.js',
+  '/administrationTab.js',
   '/apiClient.js',
   '/safeHtml.js',
   '/manifest.webmanifest',
@@ -20,6 +29,8 @@ const APP_SHELL = [
   '/shared/graph.js',
   '/shared/search.js',
   '/shared/instructions.js',
+  '/shared/presence.js',
+  '/shared/proposalDiff.js',
   '/vendor/maplibre/maplibre-gl.mjs',
   '/vendor/maplibre/maplibre-gl-shared.mjs',
   '/vendor/maplibre/maplibre-gl-worker.mjs',

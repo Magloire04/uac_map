@@ -30,7 +30,7 @@ Exception pour l'import initial : les issues n'étaient pas encore ouvertes, les
 
 ## 2026-09-29 · Réponses hors enveloppe
 
-L'enveloppe `{ data, meta }` s'applique à toutes les réponses JSON. Deux réponses sont des fichiers et en sont exclues : l'export `GET /api/v1/campus-map?format=geojson` (GeoJSON standard, lisible par QGIS) et le QR code `GET /api/v1/places/{placeId}/qr-code` (image SVG).
+L'enveloppe `{ data, meta }` s'applique à toutes les réponses JSON. Deux réponses sont des fichiers et en sont exclues : l'export `GET /api/v1/campus-map?format=geojson` (GeoJSON standard, lisible par QGIS) et les QR codes `GET /api/v1/places/{placeId}/qr-code` et `GET /api/v1/contribution/public-link/qr-code` (images SVG).
 
 ## 2026-09-29 · Stockage en fichier JSON (remplacée)
 
@@ -43,3 +43,16 @@ Un fichier JSON unique, écrit de façon atomique et sérialisée, suffit pour u
 **Contexte** : la décision « Stockage en fichier JSON » prévoyait PostgreSQL/PostGIS quand plusieurs personnes saisiraient en parallèle ou qu'un historique serait nécessaire. Ces deux besoins arrivent avec la mise en ligne puis la contribution ouverte.
 **Décision** : MariaDB 11.4, avec un SQL compatible MySQL 8. L'hébergement retenu (cPanel mutualisé) fournit et administre MariaDB, et WampServer fournit la même version en local. PostgreSQL demanderait un serveur à installer et à sécuriser soi-même ; les itinéraires restent calculés sur le téléphone, donc PostGIS n'apporte rien aujourd'hui. Détail : [specs/2026-09-29-mysql-et-mise-en-ligne.md](specs/2026-09-29-mysql-et-mise-en-ligne.md).
 **À revoir** : si des requêtes spatiales côté serveur deviennent nécessaires.
+
+## 2026-09-30 · Contribution ouverte : choix de réalisation
+
+Détail : [specs/2026-09-30-contribution-ouverte.md](specs/2026-09-30-contribution-ouverte.md).
+
+- **Annulation par comparaison d'état** : une modification s'annule si l'élément est encore dans l'état qu'elle a laissé. On remonte ainsi l'historique pas à pas ; une opération en masse n'empêche l'annulation que si elle a réellement changé l'élément.
+- **Limites d'envoi comptées avant la validation** : un envoi refusé compte aussi, pour qu'un robot ne puisse pas essayer sans fin.
+- **Relecteurs par session seulement** : l'en-tête `Authorization: Bearer` reste réservé à `ADMIN_TOKEN` (scripts). Le compteur d'échecs de connexion n'est remis à zéro que par une connexion administrateur : un jeton de relecteur ne sert pas à deviner `ADMIN_TOKEN`.
+- **Cookie contributeur renouvelé à chaque appel** : les 180 jours courent depuis la dernière visite, pour qu'un contributeur actif ne perde ni sa confiance ni son droit à l'oubli.
+- **Journal** : l'événement `admin_action_forbidden` (refus 403 d'une action réservée à l'administrateur) s'ajoute à la liste de la spécification.
+- **Interface** : un module par onglet du panneau de relecture, et un éditeur (`mapEditor.js`) partagé par le mode collecte et la contribution.
+
+**À revoir** : le compteur d'échecs de connexion est partagé par adresse IP entre l'administrateur et les relecteurs ; derrière le Wi-Fi du campus, dix échecs bloquent tout le monde 15 minutes. Un compteur par type de jeton serait à étudier si cela arrive.

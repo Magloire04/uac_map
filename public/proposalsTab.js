@@ -29,6 +29,9 @@ export function createProposalsTab(panel) {
   let page = 1;
   let list = { data: [], meta: { page: 1, limit: PAGE_LIMIT, total: 0 } };
   let detail = null;
+  // Note saisie dans le détail : remise dans le champ à chaque rendu, pour survivre à une décision en échec ou à un
+  // changement de statut du contributeur.
+  let reviewNote = '';
 
   async function loadList() {
     const query = new URLSearchParams({
@@ -45,6 +48,7 @@ export function createProposalsTab(panel) {
       return loadList();
     }
     detail = null;
+    reviewNote = '';
     panel.clearMap();
   }
 
@@ -207,7 +211,7 @@ export function createProposalsTab(panel) {
     const canAccept = action === 'report' || action === 'create' || Boolean(target);
     return html`<label class="field"
         ><span>Note au contributeur <small>(facultative, 300 caractères)</small></span
-        ><textarea id="review-note" maxlength="300"></textarea>
+        ><textarea id="review-note" maxlength="300">${reviewNote}</textarea>
       </label>
       <div class="actions">
         <button class="button primary" data-action="proposal-accept" type="button" ${canAccept ? '' : html`disabled`}>
@@ -274,23 +278,39 @@ export function createProposalsTab(panel) {
     return action === 'report' ? 'Signalement traité' : 'Proposition publiée';
   }
 
-  async function decide(status) {
+  function keepReviewNote() {
     const noteField = document.querySelector('#review-note');
-    const { data } = await panel.callStaffApi('PATCH', `/proposals/${encodeURIComponent(detail.id)}`, {
-      status,
-      note: noteField ? noteField.value : '',
-    });
+    if (noteField) reviewNote = noteField.value;
+  }
+
+  async function decide(status) {
+    keepReviewNote();
+    let data;
+    try {
+      ({ data } = await panel.callStaffApi('PATCH', `/proposals/${encodeURIComponent(detail.id)}`, {
+        status,
+        note: reviewNote,
+      }));
+    } catch (error) {
+      // 409 : un autre relecteur a déjà décidé ; la file et le compteur sont relus avant d'afficher l'erreur.
+      if (error.status === 409) await Promise.allSettled([loadList(), panel.refreshPendingCount()]);
+      throw error;
+    }
     context.showToast(describeDecision(status, data.action));
     if (status === 'accepted' && data.action !== 'report') await context.reloadCampusMap();
     await Promise.all([loadList(), panel.refreshPendingCount()]);
   }
 
   const actions = {
-    'proposal-open': (button) => openDetail(button.dataset.proposalId),
+    'proposal-open': (button) => {
+      reviewNote = '';
+      return openDetail(button.dataset.proposalId);
+    },
     'proposal-back': loadList,
     'proposal-accept': () => decide('accepted'),
     'proposal-reject': () => decide('rejected'),
     'contributor-status': async (button) => {
+      keepReviewNote();
       await panel.changeContributorStatus(button.dataset.contributorId, button.dataset.status);
       await openDetail(detail.id);
     },

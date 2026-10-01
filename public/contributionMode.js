@@ -20,6 +20,12 @@ const CONTRIBUTOR_FLAG_KEY = 'uac-map:contributeur';
 const FRESH_POSITION_MS = 30 * 1000;
 // Repli si la nouvelle lecture échoue : le serveur accepte une position de 2 minutes, on garde 30 secondes pour la requête.
 const FALLBACK_POSITION_MS = MAX_POSITION_AGE_MS - 30 * 1000;
+// Code d'erreur de la géolocalisation quand l'accès à la position est refusé.
+const PERMISSION_DENIED_CODE = 1;
+// Contributions suspendues ou périmètre absent : rien n'en avertit le téléphone, la carte est donc relue chaque minute
+// tant que dure l'attente.
+const SETTINGS_REFRESH_MS = 60 * 1000;
+const SETTINGS_WAITING_CODES = new Set(['CONTRIBUTIONS_PAUSED', 'PERIMETER_NOT_CONFIGURED']);
 const PRESENCE_MESSAGES = {
   WAITING: 'Recherche de votre position… Autorisez la localisation si le téléphone la demande.',
   POSITION_REQUIRED: 'Position indisponible : autorisez la localisation dans les réglages du navigateur.',
@@ -77,7 +83,9 @@ export function initContributionMode(context, editor) {
   let presence = { code: 'WAITING', accuracy: null };
   let selectedPlace = null;
   let ownProposals = [];
+  let hasReceivedOwnProposals = false;
   let reportTarget = null;
+  let settingsRefreshTimer = null;
   const reportDialog = selectElement('#report-dialog');
   const reportForm = selectElement('#report-form');
 
@@ -88,6 +96,8 @@ export function initContributionMode(context, editor) {
     if (contributor?.status === 'blocked') return { code: 'CONTRIBUTOR_BLOCKED', accuracy: null };
     if (!settings?.perimeter) return { code: 'PERIMETER_NOT_CONFIGURED', accuracy: null };
     if (settings.contributionsPaused) return { code: 'CONTRIBUTIONS_PAUSED', accuracy: null };
+    // Localisation refusée : l'erreur reste jusqu'à la position suivante.
+    if (state.gps.lastErrorCode === PERMISSION_DENIED_CODE) return { code: 'POSITION_REQUIRED', accuracy: null };
     const fix = state.gps.lastFix;
     if (!fix) return { code: 'WAITING', accuracy: null };
     return { code: checkDevicePosition(toDevicePosition(fix), settings.perimeter), accuracy: fix.accuracy };
@@ -98,7 +108,24 @@ export function initContributionMode(context, editor) {
   function updatePresence() {
     const previousCode = presence.code;
     presence = evaluatePresence();
-    if (presence.code !== previousCode) editor.render();
+    if (presence.code === previousCode) return;
+    editor.render();
+    refreshPlaceSheet();
+    updateSettingsRefresh();
+  }
+
+  function updateSettingsRefresh() {
+    const isWaitingForSettings = SETTINGS_WAITING_CODES.has(presence.code);
+    if (isWaitingForSettings && settingsRefreshTimer === null) {
+      settingsRefreshTimer = setInterval(() => context.reloadCampusMap(), SETTINGS_REFRESH_MS);
+    } else if (!isWaitingForSettings) {
+      stopSettingsRefresh();
+    }
+  }
+
+  function stopSettingsRefresh() {
+    clearInterval(settingsRefreshTimer);
+    settingsRefreshTimer = null;
   }
 
   const isOnCampus = () => presence.code === null;
@@ -157,7 +184,7 @@ export function initContributionMode(context, editor) {
       showToast(error.message, 6000);
     } else if (error.code === 'CONTRIBUTOR_BLOCKED') {
       contributor = { ...contributor, status: 'blocked' };
-      presence = evaluatePresence();
+      updatePresence();
     } else if (error.status === 503) {
       await context.reloadCampusMap();
     }
@@ -190,11 +217,14 @@ export function initContributionMode(context, editor) {
       ({ data: proposals } = await callApi('GET', '/contributors/me/proposals?limit=50'));
     } catch (error) {
       await handleRefusal(error);
+      // La liste précédente reste affichée ; le panneau dit « Liste indisponible » si aucune n'a encore été reçue.
+      if (error.status !== 401 && state.mode === 'contribution') showToast(error.message, 5000);
       return;
     }
     // Réponse tardive : le mode a été quitté entre-temps, on ne redessine rien.
     if (state.mode !== 'contribution') return;
     ownProposals = proposals;
+    hasReceivedOwnProposals = true;
     renderOwnProposalsOnMap();
     editor.render();
   }
@@ -212,6 +242,9 @@ export function initContributionMode(context, editor) {
   }
 
   function renderOwnProposalsPanel() {
+    const emptyList = hasReceivedOwnProposals
+      ? html`<p>Aucune proposition envoyée depuis ce téléphone.</p>`
+      : html`<p>Liste indisponible pour le moment.</p>`;
     const items = ownProposals.length
       ? html`<ul class="proposal-list">
           ${ownProposals.map(
@@ -224,7 +257,7 @@ export function initContributionMode(context, editor) {
               </li>`,
           )}
         </ul>`
-      : html`<p>Aucune proposition envoyée depuis ce téléphone.</p>`;
+      : emptyList;
     return html`
       <p>Vos propositions en attente apparaissent en pointillés violets sur la carte.</p>
       ${items}
@@ -239,7 +272,12 @@ export function initContributionMode(context, editor) {
       'Oublier ce téléphone ? Vos propositions en attente seront retirées ; ce qui a déjà été publié restera sur la carte.',
     );
     if (!isConfirmed) return;
-    await callApi('DELETE', '/contributors/me');
+    try {
+      await callApi('DELETE', '/contributors/me');
+    } catch (error) {
+      // 401 : ce téléphone est déjà oublié (depuis un autre onglet, ou par la purge) ; le nettoyage est le même.
+      if (error.status !== 401) throw error;
+    }
     rememberContributor(false);
     updateMenuButton();
     editor.close();
@@ -297,6 +335,14 @@ export function initContributionMode(context, editor) {
     `);
   }
 
+  // La présence a changé pendant que la fiche d'un lieu est ouverte : ses boutons suivent.
+  function refreshPlaceSheet() {
+    const sheet = selectElement('#sheet');
+    if (selectedPlace && !sheet.hidden && sheet.querySelector('[data-action="correct-place"]')) {
+      openPlaceSheet(selectedPlace);
+    }
+  }
+
   const placeSheetActions = {
     'correct-place': () => {
       context.closeSheet();
@@ -352,6 +398,8 @@ export function initContributionMode(context, editor) {
     },
     onClose: () => {
       ownProposals = [];
+      hasReceivedOwnProposals = false;
+      stopSettingsRefresh();
       if (reportDialog.open) reportDialog.close();
       context.setSourceData('own-proposals', context.toFeatureCollection([]));
       state.gps.subscribers.delete(updatePresence);
@@ -370,10 +418,14 @@ export function initContributionMode(context, editor) {
     state.gps.subscribers.add(updatePresence);
     presence = context.startGps() ? evaluatePresence() : { code: 'POSITION_REQUIRED', accuracy: null };
     editor.render();
+    updateSettingsRefresh();
     refreshOwnProposals();
   }
 
   document.addEventListener('campus-map-loaded', () => {
+    if (state.mode === 'contribution') updatePresence();
+  });
+  document.addEventListener('gps-error', () => {
     if (state.mode === 'contribution') updatePresence();
   });
 
@@ -389,9 +441,15 @@ export function initContributionMode(context, editor) {
     joinDialog.showModal();
   }
 
-  // Un téléphone déjà inscrit entre directement ; sinon l'écran des règles s'ouvre avec le code du lien.
+  // Un téléphone déjà inscrit entre directement ; sinon l'écran des règles s'ouvre avec le code du lien. La carte est
+  // relue à chaque entrée : les réglages (suspension, périmètre) ont pu changer depuis son chargement.
   async function startFromLink(linkCode) {
     if (state.mode === 'contribution') return;
+    await context.reloadCampusMap();
+    if (!state.campusMap) {
+      showToast('Carte indisponible : vérifiez la connexion et réessayez.', 5000);
+      return;
+    }
     try {
       const { data } = await callApi('GET', '/contributors/me');
       enter(data);
