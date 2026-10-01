@@ -104,6 +104,8 @@ export function createMapEditor(context) {
     const closedProfile = profile;
     profile = null;
     activeTool = null;
+    // Un envoi encore en cours ne doit pas bloquer les outils à la prochaine ouverture.
+    isBusy = false;
     drawnPoints = [];
     selectedPath = null;
     placeDraft = null;
@@ -626,9 +628,12 @@ export function createMapEditor(context) {
   placeForm.addEventListener('submit', (event) => {
     event.preventDefault();
     if (!profile || !placeDraft) return;
+    const saveButton = selectElement('#place-save');
     runExclusive(async () => {
       readPlaceForm();
       const { id: placeId, pendingMapClick, ...placeBody } = placeDraft;
+      // Bouton grisé pendant l'envoi : sur un réseau lent, l'appui a bien été pris en compte.
+      saveButton.disabled = true;
       try {
         const message = await profile.actions.savePlace(placeBody, placeId);
         placeDialog.close();
@@ -637,6 +642,8 @@ export function createMapEditor(context) {
         if (activeTool === 'place') selectTool(null);
       } catch (error) {
         selectElement('#place-error').textContent = error.message;
+      } finally {
+        saveButton.disabled = false;
       }
     });
   });
