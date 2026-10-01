@@ -10,6 +10,8 @@ import { getDistance, locateOnLine, createCirclePolygon, getLineLength } from '/
 import { html } from '/safeHtml.js';
 import { callApi } from '/apiClient.js';
 import { initCollectMode } from '/collectMode.js';
+import { createMapEditor } from '/mapEditor.js';
+import { initContributionMode } from '/contributionMode.js';
 
 const DEFAULT_CENTER = [2.341985, 6.416091];
 const MIN_ORIGIN_ACCURACY_METERS = 80;
@@ -44,12 +46,12 @@ const state = {
   origin: null, // { kind: 'gps' | 'place' | 'point', position, accuracy?, label? }
   route: null,
   routeOptions: { avoidStairs: false, avoidFlood: false },
-  gps: { watchId: null, lastFix: null, subscribers: new Set() },
+  gps: { watchId: null, lastFix: null, lastErrorCode: null, subscribers: new Set() },
   isAwaitingOrigin: false,
   navigation: { isActive: false, offRouteCount: 0, isFollowing: true, hasArrived: false },
   mode: null,
   isSatellite: false,
-  hooks: { onMapClick: null, onPlaceClick: null },
+  hooks: { onMapClick: null, onPlaceClick: null, onSheetAction: null, onSheetChange: null },
   lastMarkerClickTime: 0,
   hasCentered: false,
 };
@@ -105,10 +107,26 @@ const widthByZoom = (minimum, maximum) => [
 ];
 
 function addMapLayers() {
-  for (const sourceId of ['paths', 'route', 'user', 'origin', 'entrances', 'draft']) {
+  for (const sourceId of [
+    'paths',
+    'route',
+    'user',
+    'origin',
+    'entrances',
+    'draft',
+    'own-proposals',
+    'perimeter',
+    'review',
+  ]) {
     map.addSource(sourceId, { type: 'geojson', data: EMPTY_COLLECTION });
   }
   const roundLine = { 'line-cap': 'round', 'line-join': 'round' };
+  map.addLayer({
+    id: 'perimeter-line',
+    type: 'line',
+    source: 'perimeter',
+    paint: { 'line-color': '#1c1917', 'line-width': 2, 'line-dasharray': [4, 2], 'line-opacity': 0.7 },
+  });
   map.addLayer({
     id: 'paths-casing',
     type: 'line',
@@ -185,6 +203,26 @@ function addMapLayers() {
     paint: { 'circle-radius': 5, 'circle-color': '#f59e0b', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
   });
   map.addLayer({
+    id: 'own-proposals-line',
+    type: 'line',
+    source: 'own-proposals',
+    filter: ['==', ['geometry-type'], 'LineString'],
+    layout: roundLine,
+    paint: { 'line-color': '#7c3aed', 'line-width': 3, 'line-dasharray': [1.5, 1.5] },
+  });
+  map.addLayer({
+    id: 'own-proposals-points',
+    type: 'circle',
+    source: 'own-proposals',
+    filter: ['==', ['geometry-type'], 'Point'],
+    paint: {
+      'circle-radius': 7,
+      'circle-color': 'rgba(124, 58, 237, 0.15)',
+      'circle-stroke-color': '#7c3aed',
+      'circle-stroke-width': 2,
+    },
+  });
+  map.addLayer({
     id: 'entrance-points',
     type: 'circle',
     source: 'entrances',
@@ -209,6 +247,22 @@ function addMapLayers() {
     source: 'user',
     filter: ['==', ['geometry-type'], 'Point'],
     paint: { 'circle-radius': 8, 'circle-color': '#2563eb', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 },
+  });
+  const reviewColor = ['match', ['get', 'role'], 'current', '#78716c', 'reported', '#dc2626', '#7c3aed'];
+  map.addLayer({
+    id: 'review-line',
+    type: 'line',
+    source: 'review',
+    filter: ['==', ['geometry-type'], 'LineString'],
+    layout: roundLine,
+    paint: { 'line-color': reviewColor, 'line-width': 5, 'line-opacity': 0.9 },
+  });
+  map.addLayer({
+    id: 'review-points',
+    type: 'circle',
+    source: 'review',
+    filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': 8, 'circle-color': reviewColor, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
   });
 }
 
@@ -259,14 +313,14 @@ function closeSheet() {
   document.body.classList.remove('has-open-sheet');
 }
 
-const sheetHeader = (title, subtitle, closeLabel = 'Fermer') => html`
+const sheetHeader = (title, subtitle, closeLabel = 'Fermer', closeAction = 'close') => html`
   <div class="sheet-handle"></div>
   <div class="sheet-header">
     <div>
       <h2>${title}</h2>
       ${subtitle ? html`<p class="category-label">${subtitle}</p>` : ''}
     </div>
-    <button class="icon-button" data-action="close" aria-label="${closeLabel}">${CLOSE_ICON}</button>
+    <button class="icon-button" data-action="${closeAction}" aria-label="${closeLabel}">${CLOSE_ICON}</button>
   </div>
 `;
 
@@ -302,6 +356,7 @@ function applyCampusMap(campusMap) {
   if (state.selectedPlace) state.selectedPlace = findPlaceById(state.selectedPlace.id);
   if (state.destination) state.destination = findPlaceById(state.destination.id);
   renderEntrances();
+  renderPerimeter();
   document.dispatchEvent(new CustomEvent('campus-map-loaded'));
 }
 
@@ -342,12 +397,19 @@ function highlightSelectedMarker() {
 function renderEntrances() {
   const toEntranceFeatures = (place) =>
     place.entrances.map((entrance) => toPointFeature([entrance.longitude, entrance.latitude]));
-  if (state.mode === 'collect') {
-    setSourceData('entrances', toFeatureCollection(state.campusMap.places.flatMap(toEntranceFeatures)));
+  if (state.mode === 'collect' || state.mode === 'contribution') {
+    setSourceData('entrances', toFeatureCollection((state.campusMap?.places ?? []).flatMap(toEntranceFeatures)));
     return;
   }
   const place = state.destination || state.selectedPlace;
   setSourceData('entrances', toFeatureCollection(place ? toEntranceFeatures(place) : []));
+}
+
+// Contour du campus, montré dans les modes d'édition : c'est la limite des contributions.
+function renderPerimeter() {
+  const isEditing = state.mode === 'collect' || state.mode === 'contribution';
+  const perimeter = isEditing ? state.campusMap?.settings?.perimeter : null;
+  setSourceData('perimeter', toFeatureCollection(perimeter ? [toLineFeature(perimeter)] : []));
 }
 
 // ---------- Recherche ----------
@@ -650,6 +712,8 @@ function startGps() {
     return false;
   }
   if (state.gps.watchId === null) {
+    // Nouvelle demande : un refus précédent sera confirmé, ou levé, par sa réponse.
+    state.gps.lastErrorCode = null;
     state.gps.watchId = navigator.geolocation.watchPosition(handlePositionUpdate, handleGpsError, {
       enableHighAccuracy: true,
       maximumAge: 2000,
@@ -667,20 +731,28 @@ function stopGpsIfUnused() {
   }
 }
 
+// Le dernier code d'erreur reste dans state.gps.lastErrorCode jusqu'à la position suivante ; l'événement « gps-error »
+// prévient le mode contribution, qui l'explique dans son panneau.
 function handleGpsError(error) {
+  state.gps.lastErrorCode = error.code;
   if (error.code === error.PERMISSION_DENIED) {
+    // Le navigateur abandonne une surveillance refusée : startGps en relancera une à la prochaine demande.
+    navigator.geolocation.clearWatch(state.gps.watchId);
+    state.gps.watchId = null;
     showToast('Accès à la position refusé. Autorisez-le dans les réglages du navigateur.', 5000);
   }
   if (state.isAwaitingOrigin) {
     state.isAwaitingOrigin = false;
     startOriginPicking();
   }
+  document.dispatchEvent(new CustomEvent('gps-error'));
 }
 
 function handlePositionUpdate(geolocationPosition) {
   const position = [geolocationPosition.coords.longitude, geolocationPosition.coords.latitude];
   const accuracy = geolocationPosition.coords.accuracy;
   state.gps.lastFix = { position, accuracy, time: geolocationPosition.timestamp };
+  state.gps.lastErrorCode = null;
   setSourceData(
     'user',
     toFeatureCollection([
@@ -838,14 +910,21 @@ const sheetActions = {
   },
 };
 
+// Les actions du panneau que app.js ne connaît pas (mode contribution, relecture) passent par le crochet du mode actif.
 selectElement('#sheet').addEventListener('click', (event) => {
   const actionButton = event.target.closest('[data-action]');
-  if (actionButton) sheetActions[actionButton.dataset.action]?.();
+  if (!actionButton) return;
+  const actionName = actionButton.dataset.action;
+  if (Object.hasOwn(sheetActions, actionName)) sheetActions[actionName]();
+  else state.hooks.onSheetAction?.(actionName, actionButton);
 });
 
 selectElement('#sheet').addEventListener('change', (event) => {
   const option = event.target.dataset.option;
-  if (!option) return;
+  if (!option) {
+    state.hooks.onSheetChange?.(event);
+    return;
+  }
   state.routeOptions[option] = event.target.checked;
   computeRoute({ shouldFitBounds: false });
 });
@@ -911,13 +990,15 @@ function applyUrlParameters() {
 map.on('load', async () => {
   addMapLayers();
   await loadCampusMap();
+  const contributionLinkCode = new URLSearchParams(location.search).get('contribuer');
   applyUrlParameters();
-  initCollectMode({
+  const editingContext = {
     map,
     state,
     showToast,
     reloadCampusMap: loadCampusMap,
     renderEntrances,
+    renderPerimeter,
     toggleSatellite,
     startGps,
     stopGpsIfUnused,
@@ -926,7 +1007,18 @@ map.on('load', async () => {
     toFeatureCollection,
     toLineFeature,
     toPointFeature,
-  });
+    openSheet,
+    closeSheet,
+    sheetHeader,
+    fitCoordinates: fitRoute,
+  };
+  const editor = createMapEditor(editingContext);
+  initCollectMode(editingContext, editor);
+  const contribution = initContributionMode(editingContext, editor);
+  if (contributionLinkCode) {
+    history.replaceState(null, '', '/');
+    contribution.startFromLink(contributionLinkCode);
+  }
 });
 
 if ('serviceWorker' in navigator && window.isSecureContext) {

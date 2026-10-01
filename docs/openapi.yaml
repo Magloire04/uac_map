@@ -18,6 +18,9 @@ tags:
   - name: Chemins
   - name: Session
   - name: Supervision
+  - name: Contribution
+  - name: Relecture
+  - name: Administration
 
 components:
   securitySchemes:
@@ -30,6 +33,11 @@ components:
       type: http
       scheme: bearer
       description: Jeton ADMIN_TOKEN, réservé aux scripts et à l'intégration continue.
+    contributorCookie:
+      type: apiKey
+      in: cookie
+      name: uac_contributor
+      description: Cookie httpOnly posé par POST /contributors, valable 180 jours. Identifie un téléphone contributeur.
 
   parameters:
     RequestId:
@@ -57,6 +65,27 @@ components:
       schema: { type: string }
     PathId:
       name: pathId
+      in: path
+      required: true
+      schema: { type: string }
+    ProposalId:
+      name: proposalId
+      in: path
+      required: true
+      schema: { type: string }
+    ContributorId:
+      name: contributorId
+      in: path
+      required: true
+      description: Identifiant d'un contributeur (« me » est réservé au téléphone qui appelle).
+      schema: { type: string }
+    ReviewerId:
+      name: reviewerId
+      in: path
+      required: true
+      schema: { type: string }
+    LinkId:
+      name: linkId
       in: path
       required: true
       schema: { type: string }
@@ -110,7 +139,7 @@ components:
           maxItems: 15
           items: { type: string, maxLength: 60 }
         description: { type: string, maxLength: 1000 }
-        access: { type: string, maxLength: 300, description: Étage, salles, horaires. }
+        access: { type: string, maxLength: 300, description: 'Étage, salles, horaires.' }
         longitude: { type: number }
         latitude: { type: number }
         entrances:
@@ -164,6 +193,13 @@ components:
             zoom: { type: number }
             isDemo: { type: boolean }
             updatedAt: { type: string, format: date-time }
+            perimeter:
+              description: Contour du campus ([[longitude, latitude], …]), vide tant qu'il n'est pas importé.
+              oneOf:
+                - type: 'null'
+                - type: array
+                  items: { type: array, items: { type: number }, minItems: 2, maxItems: 2 }
+            contributionsPaused: { type: boolean }
         places: { type: array, items: { $ref: '#/components/schemas/Place' } }
         paths: { type: array, items: { $ref: '#/components/schemas/Path' } }
     PaginationMeta:
@@ -191,10 +227,141 @@ components:
           type: object
           properties:
             expiresAt: { type: string, format: date-time }
+            role: { type: string, enum: [admin, reviewer] }
+            name: { type: [string, 'null'], description: "Nom du relecteur, vide pour l'administrateur." }
+    DevicePosition:
+      type: object
+      required: [longitude, latitude, accuracy, ageMs]
+      description: Position du téléphone au moment de l'envoi. Seule sa précision est conservée.
+      properties:
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        accuracy: { type: number, minimum: 0, maximum: 50, description: 'Précision annoncée, en mètres.' }
+        ageMs: { type: number, maximum: 120000, description: Âge de la position selon l'horloge du téléphone. }
+    ProposalInput:
+      type: object
+      required: [entityType, action, payload, devicePosition]
+      properties:
+        entityType: { type: string, enum: [place, path] }
+        action: { type: string, enum: [create, update, report], description: update est réservé aux lieux. }
+        targetId: { type: string, maxLength: 64, description: Obligatoire pour update et report. }
+        payload:
+          oneOf:
+            - $ref: '#/components/schemas/PlaceInput'
+            - $ref: '#/components/schemas/PathInput'
+            - type: object
+              required: [message]
+              properties:
+                message: { type: string, maxLength: 500 }
+        devicePosition: { $ref: '#/components/schemas/DevicePosition' }
+    OwnContributor:
+      type: object
+      properties:
+        id: { type: string }
+        pseudonym: { type: [string, 'null'], maxLength: 40 }
+        status: { type: string, enum: [new, trusted, blocked] }
+        createdAt: { type: string, format: date-time }
+    OwnProposal:
+      type: object
+      properties:
+        id: { type: string }
+        entityType: { type: string, enum: [place, path] }
+        action: { type: string, enum: [create, update, report] }
+        targetId: { type: [string, 'null'] }
+        payload: { type: object }
+        status: { type: string, enum: [pending, accepted, rejected, withdrawn] }
+        reviewNote: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        reviewedAt: { type: [string, 'null'], format: date-time }
+    Contributor:
+      type: object
+      description: Contributeur vu par un relecteur, avec son bilan.
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        pseudonym: { type: [string, 'null'] }
+        status: { type: string, enum: [new, trusted, blocked] }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        acceptedCount: { type: integer }
+        rejectedCount: { type: integer }
+        pendingCount: { type: integer }
+    Proposal:
+      type: object
+      description: Proposition vue par un relecteur.
+      properties:
+        id: { type: string }
+        contributorId: { type: [string, 'null'], description: Vide si le contributeur a été supprimé. }
+        contributor:
+          type: [object, 'null']
+          properties:
+            id: { type: string }
+            pseudonym: { type: [string, 'null'] }
+            status: { type: string, enum: [new, trusted, blocked] }
+        entityType: { type: string, enum: [place, path] }
+        action: { type: string, enum: [create, update, report] }
+        targetId: { type: [string, 'null'] }
+        targetUpdatedAt: { type: [string, 'null'], format: date-time }
+        payload: { type: object }
+        positionAccuracyMeters: { type: number }
+        status: { type: string, enum: [pending, accepted, rejected, withdrawn] }
+        reviewerKind: { type: [string, 'null'], description: admin ou reviewer ; vide si publiée directement. }
+        reviewerId: { type: [string, 'null'] }
+        reviewNote: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        reviewedAt: { type: [string, 'null'], format: date-time }
+    ProposalDetail:
+      allOf:
+        - $ref: '#/components/schemas/Proposal'
+        - type: object
+          properties:
+            contributor:
+              oneOf:
+                - $ref: '#/components/schemas/Contributor'
+                - type: 'null'
+            target: { type: [object, 'null'], description: Version actuelle du lieu ou du chemin visé. }
+            hasConflict:
+              {
+                type: boolean,
+                description: "Vrai si la cible a changé ou disparu depuis l'envoi, pour une proposition en attente.",
+              }
+    MapChange:
+      type: object
+      properties:
+        id: { type: integer }
+        entityType: { type: string, enum: [place, path, map] }
+        entityId: { type: [string, 'null'] }
+        action: { type: string, enum: [create, update, delete, revert, bulk] }
+        beforeState: { type: [object, 'null'] }
+        afterState: { type: [object, 'null'] }
+        actorKind: { type: string, enum: [admin, reviewer, contributor, command] }
+        actorId: { type: [string, 'null'] }
+        actorName: { type: [string, 'null'], description: Nom du relecteur ou pseudo du contributeur. }
+        proposalId: { type: [string, 'null'] }
+        revertsChangeId: { type: [integer, 'null'] }
+        createdAt: { type: string, format: date-time }
+    Reviewer:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, maxLength: 80 }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    ContributionLink:
+      type: object
+      properties:
+        id: { type: string, description: "Code du lien, placé dans l'adresse ?contribuer=…" }
+        label: { type: string, maxLength: 80 }
+        isActive: { type: boolean }
+        isPublic: { type: boolean, description: "Lien affiché sur le site ; au plus un lien actif l'est." }
+        createdAt: { type: string, format: date-time }
+        closedAt: { type: [string, 'null'], format: date-time }
+        url: { type: string }
 
   responses:
     BadRequest:
-      description: Données invalides (codes VALIDATION_ERROR, INVALID_JSON, INVALID_PAGE, INVALID_LIMIT, INVALID_SORT, INVALID_ORDER, INVALID_CATEGORY, INVALID_PATH_TYPE, INVALID_FORMAT, CONFIRMATION_REQUIRED).
+      description: Données invalides (codes VALIDATION_ERROR, INVALID_JSON, INVALID_PAGE, INVALID_LIMIT, INVALID_SORT, INVALID_ORDER, INVALID_CATEGORY, INVALID_PATH_TYPE, INVALID_FORMAT, CONFIRMATION_REQUIRED, INVALID_STATUS, INVALID_ENTITY_TYPE, INVALID_CONTRIBUTOR_ID, INVALID_ENTITY_ID).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -204,12 +371,42 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     NotFound:
-      description: Ressource inexistante (PLACE_NOT_FOUND, PATH_NOT_FOUND, ROUTE_NOT_FOUND).
+      description: Ressource inexistante (PLACE_NOT_FOUND, PATH_NOT_FOUND, ROUTE_NOT_FOUND, NO_PUBLIC_LINK, LINK_NOT_FOUND, TARGET_NOT_FOUND, PROPOSAL_NOT_FOUND, CONTRIBUTOR_NOT_FOUND, CHANGE_NOT_FOUND, REVIEWER_NOT_FOUND).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Proposition déjà traitée (PROPOSAL_ALREADY_REVIEWED), élément modifié depuis (CHANGE_OUTDATED) ou opération en masse (CHANGE_NOT_REVERTIBLE).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     TooManyAttempts:
       description: Trop d'échecs d'authentification (TOO_MANY_ATTEMPTS), réessayer après 15 minutes.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Trop d'envois dans l'heure (TOO_MANY_REQUESTS).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotAContributor:
+      description: Ce téléphone n'a pas rejoint la contribution (NOT_A_CONTRIBUTOR).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Téléphone bloqué (CONTRIBUTOR_BLOCKED), ou action réservée à l'administrateur (FORBIDDEN).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PresenceNotVerified:
+      description: Présence sur le campus non vérifiée (POSITION_REQUIRED, OUTSIDE_CAMPUS, POSITION_INACCURATE, POSITION_TOO_OLD, GEOMETRY_OUTSIDE_CAMPUS).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Contributions suspendues (CONTRIBUTIONS_PAUSED) ou périmètre du campus non configuré (PERIMETER_NOT_CONFIGURED).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -260,7 +457,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
     delete:
       tags: [Carte]
-      summary: Vider la carte (tous les lieux et chemins)
+      summary: Vider la carte (tous les lieux et chemins), réservé à l'administrateur
       security: [{ adminSession: [] }, { adminToken: [] }]
       parameters:
         - { $ref: '#/components/parameters/RequestId' }
@@ -272,6 +469,7 @@ paths:
         '204': { $ref: '#/components/responses/NoContent' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /places:
     get:
@@ -464,7 +662,7 @@ paths:
     post:
       tags: [Session]
       summary: Ouvrir une session du mode collecte
-      description: Échange le jeton d'accès contre un cookie httpOnly, SameSite=Strict, valable 12 heures.
+      description: Échange ADMIN_TOKEN ou le jeton personnel d'un relecteur contre un cookie httpOnly, SameSite=Strict, valable 12 heures.
       requestBody:
         required: true
         content:
@@ -498,3 +696,509 @@ paths:
       summary: Fermer la session
       responses:
         '204': { $ref: '#/components/responses/NoContent' }
+
+  /contribution/public-link:
+    get:
+      tags: [Contribution]
+      summary: Lien de contribution public, affiché sur le site
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      responses:
+        '200':
+          description: Lien public actif
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      code: { type: string }
+                      url: { type: string, description: 'PUBLIC_URL/?contribuer=code' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /contribution/public-link/qr-code:
+    get:
+      tags: [Contribution]
+      summary: QR code du lien de contribution public, à imprimer
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      responses:
+        '200':
+          description: Image SVG
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /contributors:
+    get:
+      tags: [Relecture]
+      summary: Liste des contributeurs, avec leur bilan
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [new, trusted, blocked] }
+      responses:
+        '200':
+          description: Page de contributeurs, du plus récent au plus ancien
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Contributor' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Contribution]
+      summary: Rejoindre la contribution par un lien
+      description: Dépose le cookie uac_contributor. Un téléphone déjà inscrit reçoit son contributeur existant (200), quel que soit le lien.
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [linkCode]
+              properties:
+                linkCode: { type: string }
+                pseudonym: { type: string, maxLength: 40 }
+      responses:
+        '200':
+          description: Téléphone déjà inscrit
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnContributor' } } }
+        '201':
+          description: Contributeur créé (en-tête Set-Cookie)
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnContributor' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: Lien fermé (LINK_CLOSED)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /contributors/me:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Contribution]
+      summary: Mon téléphone contributeur
+      security: [{ contributorCookie: [] }]
+      responses:
+        '200':
+          description: Statut, pseudo et date d'inscription
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnContributor' } } }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+    patch:
+      tags: [Contribution]
+      summary: Changer de pseudo
+      security: [{ contributorCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pseudonym:
+                  {
+                    type: string,
+                    maxLength: 40,
+                    description: 'Vide pour retirer le pseudo ; absent, il ne change pas.',
+                  }
+      responses:
+        '200':
+          description: Contributeur modifié
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnContributor' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+    delete:
+      tags: [Contribution]
+      summary: Oublier ce téléphone
+      description: Supprime le contributeur et son cookie, retire ses propositions en attente. Ce qui a été publié reste, attribué à « contributeur supprimé ».
+      security: [{ contributorCookie: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+
+  /contributors/me/proposals:
+    get:
+      tags: [Contribution]
+      summary: Mes propositions, de la plus récente à la plus ancienne
+      security: [{ contributorCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page de propositions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/OwnProposal' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+
+  /proposals:
+    get:
+      tags: [Relecture]
+      summary: File des propositions
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Order' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, accepted, rejected, withdrawn] }
+        - name: entity-type
+          in: query
+          schema: { type: string, enum: [place, path] }
+        - name: contributor-id
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Page de propositions, de la plus ancienne à la plus récente par défaut
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Proposal' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Contribution]
+      summary: Envoyer une proposition
+      description: |
+        Contributeur « nouveau » : la proposition attend une relecture (pending). Contributeur « de confiance » :
+        elle est publiée aussitôt (accepted), sauf un signalement, toujours relu. La position du téléphone est
+        vérifiée à chaque envoi ; seule sa précision est conservée.
+      security: [{ contributorCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProposalInput' }
+      responses:
+        '201':
+          description: Proposition enregistrée
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/OwnProposal' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/NotAContributor' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/PresenceNotVerified' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /proposals/{proposalId}:
+    parameters: [{ $ref: '#/components/parameters/ProposalId' }, { $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Relecture]
+      summary: Détail d'une proposition, version actuelle de la cible et conflit éventuel
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      responses:
+        '200':
+          description: Proposition
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/ProposalDetail' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Relecture]
+      summary: Accepter (publier) ou refuser une proposition
+      description: Accepter un signalement le marque comme traité, sans modifier la carte.
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [accepted, rejected] }
+                note: { type: string, maxLength: 300, description: Montrée au contributeur. }
+      responses:
+        '200':
+          description: Proposition traitée
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Proposal' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /contributors/{contributorId}:
+    parameters: [{ $ref: '#/components/parameters/ContributorId' }, { $ref: '#/components/parameters/RequestId' }]
+    patch:
+      tags: [Relecture]
+      summary: Accorder ou retirer la confiance, bloquer un téléphone
+      description: Bloquer refuse aussitôt tout ce que le téléphone a en attente.
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [new, trusted, blocked] }
+      responses:
+        '200':
+          description: Contributeur modifié
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Contributor' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /map-changes:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Relecture]
+      summary: Historique des modifications, de la plus récente à la plus ancienne
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - name: entity-type
+          in: query
+          schema: { type: string, enum: [place, path, map] }
+        - name: entity-id
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Page de l'historique
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/MapChange' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Relecture]
+      summary: Annuler une modification
+      description: L'élément retrouve son état d'avant. Refusé s'il a changé depuis (annuler d'abord les modifications plus récentes) ou pour une opération en masse.
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revertsChangeId]
+              properties:
+                revertsChangeId: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: Annulation inscrite à l'historique
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/MapChange' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /reviewers:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Administration]
+      summary: Liste des relecteurs
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page de relecteurs, du plus récent au plus ancien
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Reviewer' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Administration]
+      summary: Créer un relecteur
+      description: La réponse contient son jeton personnel, montré une seule fois.
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 80 }
+      responses:
+        '201':
+          description: Relecteur créé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Reviewer'
+                      - type: object
+                        properties:
+                          token: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /reviewers/{reviewerId}:
+    parameters: [{ $ref: '#/components/parameters/ReviewerId' }, { $ref: '#/components/parameters/RequestId' }]
+    delete:
+      tags: [Administration]
+      summary: Révoquer un relecteur (ferme ses sessions)
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /contribution-links:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [Administration]
+      summary: Liste des liens de contribution
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page de liens, du plus récent au plus ancien
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ContributionLink' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Administration]
+      summary: Créer un lien de contribution
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label: { type: string, maxLength: 80 }
+                isPublic: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Lien créé
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/ContributionLink' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /contribution-links/{linkId}:
+    parameters: [{ $ref: '#/components/parameters/LinkId' }, { $ref: '#/components/parameters/RequestId' }]
+    patch:
+      tags: [Administration]
+      summary: Renommer, fermer, rouvrir un lien, ou le désigner comme lien public
+      description: Fermer un lien lui retire le statut public ; un lien fermé ne peut pas être désigné public.
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string, maxLength: 80 }
+                isActive: { type: boolean }
+                isPublic: { type: boolean }
+      responses:
+        '200':
+          description: Lien modifié
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/ContributionLink' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /campus-settings:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    patch:
+      tags: [Administration]
+      summary: Suspendre ou reprendre les contributions
+      security: [{ adminSession: [] }, { adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contributionsPaused]
+              properties:
+                contributionsPaused: { type: boolean }
+      responses:
+        '200':
+          description: Réglages de la carte
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/CampusMap/properties/settings' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }

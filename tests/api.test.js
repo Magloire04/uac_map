@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { createApp } from '../server/app.js';
 import { createEmptyCampusMap } from '../server/campusMapDefaults.js';
 import { rewriteCampusMap } from '../server/database/campusMapRepository.js';
+import { listMapChanges } from '../server/database/mapChangeRepository.js';
 import { createTestPool, databaseAfter, databaseBefore, databaseTest, resetTestDatabase } from './testDatabase.js';
 
 const ADMIN_TOKEN = 'jeton-de-test-1234';
@@ -249,4 +250,56 @@ databaseTest('applique deux modifications partielles simultanées d’un même c
     );
   }
   await adminCall(`/paths/${path.id}`, { method: 'DELETE' });
+});
+
+const twoPointPath = {
+  type: 'road',
+  coordinates: [
+    [2.342, 6.416],
+    [2.3425, 6.4162],
+  ],
+};
+
+const listChangesOf = async (entityId) =>
+  (await listMapChanges(database, { page: 1, limit: 20, entityId })).items.map((change) => [
+    change.action,
+    change.actorKind,
+    change.beforeState !== null,
+    change.afterState !== null,
+  ]);
+
+databaseTest('inscrit chaque écriture du mode collecte à l’historique', async () => {
+  const place = (await (await adminCall('/places', { method: 'POST', body: validPlace })).json()).data;
+  await adminCall(`/places/${place.id}`, { method: 'PUT', body: { ...place, name: 'Amphi renommé' } });
+  await adminCall(`/places/${place.id}`, { method: 'DELETE' });
+  const expected = [
+    ['delete', 'admin', true, false],
+    ['update', 'admin', true, true],
+    ['create', 'admin', false, true],
+  ];
+  assert.deepEqual(await listChangesOf(place.id), expected);
+  const [, update] = (await listMapChanges(database, { page: 1, limit: 20, entityId: place.id })).items;
+  assert.deepEqual([update.beforeState.name, update.afterState.name], ['Amphi Test', 'Amphi renommé']);
+  const path = (await (await adminCall('/paths', { method: 'POST', body: twoPointPath })).json()).data;
+  await adminCall(`/paths/${path.id}`, { method: 'PATCH', body: { name: 'Voie pavée' } });
+  await adminCall(`/paths/${path.id}`, { method: 'DELETE' });
+  assert.deepEqual(await listChangesOf(path.id), expected);
+});
+
+databaseTest('n’inscrit rien à l’historique quand une modification est refusée', async () => {
+  const path = (await (await adminCall('/paths', { method: 'POST', body: twoPointPath })).json()).data;
+  const refused = await adminCall(`/paths/${path.id}`, { method: 'PATCH', body: { name: 'x'.repeat(121) } });
+  assert.equal(refused.status, 400);
+  assert.deepEqual(await listChangesOf(path.id), [['create', 'admin', false, true]]);
+  await adminCall(`/paths/${path.id}`, { method: 'DELETE' });
+});
+
+databaseTest('vider la carte laisse une seule ligne en masse, au nom de l’administrateur', async () => {
+  await database.execute('DELETE FROM map_changes');
+  assert.equal((await adminCall('/campus-map?confirm=true', { method: 'DELETE' })).status, 204);
+  const { items } = await listMapChanges(database, { page: 1, limit: 20 });
+  assert.deepEqual(
+    items.map((change) => [change.entityType, change.action, change.actorKind]),
+    [['map', 'bulk', 'admin']],
+  );
 });

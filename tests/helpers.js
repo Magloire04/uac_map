@@ -12,6 +12,16 @@ const planeCenter = projector.toPlane(CAMPUS_CENTER);
 export const offsetPosition = (eastMeters, northMeters) =>
   projector.toLonLat([planeCenter[0] + eastMeters, planeCenter[1] + northMeters]);
 
+// Carré fermé centré sur le campus, de demi-côté donné en mètres : périmètre de test.
+export const createSquarePerimeter = (halfSideMeters) =>
+  [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+    [-1, -1],
+  ].map(([east, north]) => offsetPosition(east * halfSideMeters, north * halfSideMeters));
+
 export const createTestPath = (id, type, offsets, extra = {}) => ({
   id,
   type,

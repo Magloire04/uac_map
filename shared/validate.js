@@ -18,7 +18,7 @@ export class ValidationError extends Error {
   }
 }
 
-function cleanText(value, maxLength, label, isRequired = false) {
+export function cleanText(value, maxLength, label, isRequired = false) {
   const rawValue = value ?? '';
   if (typeof rawValue !== 'string') throw new ValidationError(`${label} doit être un texte`);
   const text = rawValue

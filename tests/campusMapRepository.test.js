@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import assert from 'node:assert/strict';
+import { ADMIN_ACTOR } from '../server/actors.js';
 import { createEmptyCampusMap } from '../server/campusMapDefaults.js';
 import { buildDemoCampusMap } from '../server/demo.js';
 import {
@@ -17,11 +18,15 @@ import {
   listPaths,
   listPlaces,
   readCampusMap,
+  readEntityVersion,
   readSettings,
   replacePlace,
   rewriteCampusMap,
-  updatePathAttributes,
+  setContributionsPaused,
+  setPerimeter,
+  replacePath,
 } from '../server/database/campusMapRepository.js';
+import { listMapChanges } from '../server/database/mapChangeRepository.js';
 import { offsetPosition } from './helpers.js';
 import { createTestPool, databaseAfter, databaseBefore, databaseTest, resetTestDatabase } from './testDatabase.js';
 
@@ -161,20 +166,17 @@ databaseTest('relit un chemin de 5000 points à l’identique', async () => {
   assert.deepEqual(await findPath(database, path.id), path);
 });
 
-databaseTest('modifie le type, le nom et le caractère inondable sans toucher au tracé', async () => {
+databaseTest('remplace un chemin, tracé compris, et ignore un identifiant inconnu', async () => {
   await emptyTheMap();
   const path = buildPath();
   await insertPath(database, path);
-  const updated = await updatePathAttributes(database, path.id, {
-    type: 'stairs',
-    name: 'Escaliers',
-    isFloodProne: true,
-  });
-  assert.deepEqual(updated, { ...path, type: 'stairs', name: 'Escaliers', isFloodProne: true });
-  assert.equal(
-    await updatePathAttributes(database, 'path_inconnu', { type: 'road', name: '', isFloodProne: false }),
-    null,
-  );
+  const { id, ...fields } = path;
+  const coordinates = [offsetPosition(1, 1), offsetPosition(40, 20), offsetPosition(60, 25)];
+  const changes = { type: 'stairs', name: 'Escaliers', isFloodProne: true, coordinates };
+  const replaced = await replacePath(database, id, { ...fields, ...changes });
+  assert.deepEqual(replaced, { ...path, ...changes });
+  assert.deepEqual(await findPath(database, id), replaced);
+  assert.equal(await replacePath(database, 'path_inconnu', fields), null);
 });
 
 databaseTest('filtre les chemins par type et les trie par identifiant', async () => {
@@ -278,4 +280,57 @@ databaseTest('recrée seulement les réglages quand ils manquent alors que la ca
     );
     assert.equal(campusMap.settings.isDemo, false);
   }
+});
+
+const SQUARE_PERIMETER = [
+  [2.34, 6.41],
+  [2.35, 6.41],
+  [2.35, 6.42],
+  [2.34, 6.42],
+  [2.34, 6.41],
+];
+
+const listBulkChanges = async () =>
+  (await listMapChanges(database, { page: 1, limit: 20, entityType: 'map' })).items.map((change) => [
+    change.action,
+    change.actorKind,
+  ]);
+
+databaseTest('enregistre le périmètre, l’inscrit à l’historique, et garde l’interrupteur de suspension', async () => {
+  await emptyTheMap();
+  await database.execute('DELETE FROM map_changes');
+  await setPerimeter(database, SQUARE_PERIMETER);
+  await setContributionsPaused(database, true);
+  const settings = await readSettings(database);
+  assert.deepEqual(settings.perimeter, SQUARE_PERIMETER);
+  assert.equal(settings.contributionsPaused, true);
+  assert.deepEqual(await listBulkChanges(), [['bulk', 'command']]);
+  await setContributionsPaused(database, false);
+  assert.equal((await readSettings(database)).contributionsPaused, false);
+});
+
+databaseTest('une réécriture ne touche ni au périmètre ni à la suspension, et s’inscrit à l’historique', async () => {
+  await emptyTheMap();
+  await setPerimeter(database, SQUARE_PERIMETER);
+  await setContributionsPaused(database, true);
+  await database.execute('DELETE FROM map_changes');
+  await rewriteCampusMap(database, () => buildDemoCampusMap(), undefined, ADMIN_ACTOR);
+  await rewriteCampusMap(database, () => createEmptyCampusMap());
+  const settings = await readSettings(database);
+  assert.deepEqual(settings.perimeter, SQUARE_PERIMETER);
+  assert.equal(settings.contributionsPaused, true);
+  assert.deepEqual(await listBulkChanges(), [
+    ['bulk', 'command'],
+    ['bulk', 'admin'],
+  ]);
+  await setContributionsPaused(database, false);
+});
+
+databaseTest('donne la version courante d’un lieu ou d’un chemin', async () => {
+  await emptyTheMap();
+  const now = new Date('2026-09-30T10:00:00.000Z');
+  const place = buildPlace();
+  await insertPlace(database, place, now);
+  assert.equal((await readEntityVersion(database, 'place', place.id)).toISOString(), now.toISOString());
+  assert.equal(await readEntityVersion(database, 'path', 'path_inconnu'), null);
 });

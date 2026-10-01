@@ -17,6 +17,8 @@ export function createEmptyCampusMap(now = new Date()) {
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
       isDemo: false,
+      perimeter: null,
+      contributionsPaused: false,
       updatedAt: now.toISOString(),
     },
     places: [],

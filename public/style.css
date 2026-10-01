@@ -515,6 +515,14 @@ body.has-open-sheet .floating-buttons {
   color: var(--color-muted);
   font-size: 13px;
 }
+.warning,
+.tool-panel p.warning {
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
 .row {
   display: flex;
   gap: 8px;
@@ -528,6 +536,55 @@ body.has-open-sheet .floating-buttons {
   border-radius: 8px;
   padding: 7px 8px;
   background: var(--color-surface);
+}
+
+/* Contribution ouverte */
+.collect-bar[data-mode='contribution'] {
+  border-color: #7c3aed;
+}
+.collect-bar[data-mode='contribution'] .collect-title {
+  color: #6d28d9;
+}
+.rule-list {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.proposal-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+  font-size: 14px;
+}
+.proposal-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-surface-alt);
+}
+.proposal-list .note {
+  display: block;
+}
+.status-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  margin-right: 4px;
+  background: var(--color-surface-alt);
+  color: var(--color-muted);
+}
+.status-badge.status-pending {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+.status-badge.status-accepted {
+  background: #dcfce7;
+  color: #166534;
+}
+.status-badge.status-rejected {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 /* Boîtes de dialogue */
@@ -626,4 +683,101 @@ body.has-open-sheet .toast {
 }
 body.is-picking-point #map {
   cursor: crosshair;
+}
+
+/* Relecture */
+.tab-list {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 4px 0 10px;
+}
+.tab {
+  flex: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.tab.is-active {
+  background: #ede9fe;
+  border-color: #7c3aed;
+  color: #5b21b6;
+}
+.tab-content h3 {
+  font-size: 16px;
+  margin: 14px 0 6px;
+}
+.review-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+}
+.review-list li {
+  border-bottom: 1px solid var(--color-border);
+  padding: 8px 0;
+  font-size: 14px;
+}
+.review-list li > button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+.review-list .note {
+  display: block;
+}
+.field-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin: 8px 0;
+}
+.field-table th,
+.field-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-surface-alt);
+}
+.field-table th {
+  color: var(--color-muted);
+  font-weight: 600;
+}
+.field-table .is-proposed {
+  color: #5b21b6;
+  font-weight: 600;
+}
+.report-message {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #dc2626;
+  background: #fef2f2;
+  white-space: pre-wrap;
+}
+.switch-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+}
+.token-value {
+  width: 100%;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+/* Grand écran : le panneau du bas occupe la gauche (10 px + 420 px), la barre se décale à sa droite. */
+@media (min-width: 760px) {
+  body.has-open-sheet .collect-bar {
+    left: 440px;
+  }
 }
