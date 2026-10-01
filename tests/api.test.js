@@ -57,6 +57,13 @@ databaseTest('ajoute les en-têtes de sécurité et un X-Request-ID', async () =
   assert.ok(response.headers.get('x-request-id'));
 });
 
+// Les serveurs de tuiles OpenStreetMap refusent une requête de page web sans Referer ; seule l'origine doit partir.
+databaseTest('envoie l’origine du site aux autres domaines, sans le chemin', async () => {
+  const response = await fetch(`${baseUrl}/`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+});
+
 databaseTest('reprend le X-Request-ID fourni par le client', async () => {
   const response = await fetch(`${baseUrl}/api/v1/health`, { headers: { 'X-Request-ID': 'trace-12345678' } });
   assert.equal(response.headers.get('x-request-id'), 'trace-12345678');

@@ -60,7 +60,8 @@ function setSecurityHeaders(_request, response, next) {
       "form-action 'self'",
     ].join('; '),
     'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'same-origin',
+    // Les serveurs de tuiles OpenStreetMap exigent un Referer : seule l'origine du site part vers un autre domaine.
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'geolocation=(self), camera=(), microphone=()',
     'Cross-Origin-Opener-Policy': 'same-origin',
   });
