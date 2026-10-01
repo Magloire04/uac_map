@@ -60,9 +60,14 @@ export function createReviewPanel(context, { callStaffApi, getStaffSession, onRe
     getPendingCount: () => pendingCount,
     refreshPendingCount,
     changeContributorStatus,
-    showOnMap: (features) => context.setSourceData('review', context.toFeatureCollection(features)),
+    // Sans effet une fois le panneau fermé : une réponse tardive ne dessine rien et ne déplace pas la carte.
+    showOnMap: (features) => {
+      if (isOpen) context.setSourceData('review', context.toFeatureCollection(features));
+    },
     clearMap: () => context.setSourceData('review', context.toFeatureCollection([])),
-    fitTo: (coordinates) => context.fitCoordinates(coordinates),
+    fitTo: (coordinates) => {
+      if (isOpen) context.fitCoordinates(coordinates);
+    },
   };
 
   const tabs = [
