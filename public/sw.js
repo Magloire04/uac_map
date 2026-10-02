@@ -85,6 +85,17 @@ async function fetchWithCacheFallback(request) {
   }
 }
 
+// Fond de carte (public/basemap) : cache d'abord. Ces fichiers ne changent qu'avec APP_CACHE ; le plus lourd de
+// l'appli n'est ainsi téléchargé qu'une fois, et une erreur du serveur ne masque pas la copie gardée.
+async function fetchBasemapFile(request) {
+  const cache = await caches.open(APP_CACHE);
+  const cachedResponse = await cache.match(request);
+  if (cachedResponse) return cachedResponse;
+  const response = await fetch(request);
+  if (response.ok) await cache.put(request, response.clone());
+  return response;
+}
+
 // Tuiles : cache d'abord, avec un plafond pour ne pas saturer le stockage du téléphone.
 async function fetchTile(request) {
   const cache = await caches.open(TILE_CACHE);
@@ -111,5 +122,9 @@ self.addEventListener('fetch', (event) => {
   }
   if (url.origin !== location.origin) return;
   if (url.pathname.startsWith('/api/') && url.pathname !== '/api/v1/campus-map') return;
+  if (url.pathname.startsWith('/basemap/')) {
+    event.respondWith(fetchBasemapFile(request));
+    return;
+  }
   event.respondWith(fetchWithCacheFallback(request));
 });

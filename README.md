@@ -130,5 +130,5 @@ Gitflow : `main` reçoit les versions publiées, `develop` le travail en cours. 
 
 Code sous [Mozilla Public License 2.0](LICENSE) : utilisable partout, y compris dans un produit fermé, mais toute modification d'un fichier du projet reste publiée sous la même licence.
 
-- Fond de plan (`public/basemap`) et données importées : © contributeurs [OpenStreetMap](https://www.openstreetmap.org/copyright), licence ODbL, via le schéma [Protomaps](https://protomaps.com) ; polices Noto Sans sous licence OFL, icônes sous licence MIT. Une carte du campus construite à partir d'un import OSM et diffusée publiquement l'est sous ODbL.
+- Fond de plan (`public/basemap`) et données importées : © contributeurs [OpenStreetMap](https://www.openstreetmap.org/copyright), licence ODbL, via le schéma [Protomaps](https://protomaps.com) ; polices Noto Sans sous licence OFL, icônes sous licence MIT, bibliothèques `pmtiles` et `@protomaps/basemaps` sous licence BSD-3-Clause. Une carte du campus construite à partir d'un import OSM et diffusée publiquement l'est sous ODbL.
 - Imagerie satellite : © Esri, Maxar, Earthstar Geographics, selon les conditions d'utilisation d'Esri.

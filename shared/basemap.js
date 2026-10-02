@@ -7,6 +7,9 @@
 
 // Ouest, sud, est, nord : le périmètre du campus prolongé d'environ 3 km de chaque côté.
 export const BASEMAP_BOUNDS = [2.3104, 6.3822, 2.3736, 6.45];
+// La carte ne sort pas de la zone : en dessous du zoom 12, rien n'est affichable. Le zoom 11 laisse une marge, et
+// les zooms plus petits (un tiers du fichier) ne sont pas extraits.
+export const BASEMAP_MIN_ZOOM = 11;
 export const BASEMAP_MAX_ZOOM = 15;
 export const BASEMAP_ARCHIVE_URL = '/basemap/campus.pmtiles';
 export const BASEMAP_ARCHIVE_KEY = 'campus';
@@ -61,6 +64,7 @@ export function createExtractArguments(buildDate, outputPath) {
     `${PROTOMAPS_BUILDS_URL}/${buildDate}.pmtiles`,
     outputPath,
     `--bbox=${BASEMAP_BOUNDS.join(',')}`,
+    `--minzoom=${BASEMAP_MIN_ZOOM}`,
     `--maxzoom=${BASEMAP_MAX_ZOOM}`,
   ];
 }

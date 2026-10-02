@@ -4,8 +4,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { getDistance } from '../shared/geo.js';
-import { BASEMAP_BOUNDS, createExtractArguments, createMapStyle, withoutPointsOfInterest } from '../shared/basemap.js';
+import {
+  BASEMAP_BOUNDS,
+  BASEMAP_MAX_ZOOM,
+  BASEMAP_MIN_ZOOM,
+  createExtractArguments,
+  createMapStyle,
+  withoutPointsOfInterest,
+} from '../shared/basemap.js';
 import { CAMPUS_CENTER } from './helpers.js';
 
 const ORIGIN = 'https://uacmap.bytechnum.com';
@@ -59,13 +67,24 @@ test('la couche satellite est cachée par défaut et posée sur le fond', () => 
   assert.ok(!style.layers.some((layer) => layer['source-layer'] === 'pois'));
 });
 
-test("prépare l'extraction de la zone jusqu'au zoom 15", () => {
+test("prépare l'extraction de la zone, des zooms 11 à 15", () => {
   assert.deepEqual(createExtractArguments('20260930', 'public/basemap/campus.pmtiles'), [
     'extract',
     'https://build.protomaps.com/20260930.pmtiles',
     'public/basemap/campus.pmtiles',
     '--bbox=2.3104,6.3822,2.3736,6.45',
+    '--minzoom=11',
     '--maxzoom=15',
   ]);
   assert.throws(() => createExtractArguments('2026-09-30', 'x.pmtiles'), /AAAAMMJJ/);
+});
+
+// En-tête PMTiles v3 : zooms aux octets 100 et 101, puis les bornes en dix-millionièmes de degré.
+test('le fichier versionné couvre la zone, des zooms 11 à 15', async () => {
+  const header = await readFile(new URL('../public/basemap/campus.pmtiles', import.meta.url));
+  assert.equal(header.subarray(0, 7).toString('ascii'), 'PMTiles');
+  assert.equal(header.readUInt8(100), BASEMAP_MIN_ZOOM);
+  assert.equal(header.readUInt8(101), BASEMAP_MAX_ZOOM);
+  const bounds = [102, 106, 110, 114].map((offset) => header.readInt32LE(offset) / 1e7);
+  assert.deepEqual(bounds, BASEMAP_BOUNDS);
 });

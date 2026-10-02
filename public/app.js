@@ -998,7 +998,9 @@ function applyUrlParameters() {
   if (currentPlace || sharedPlace) history.replaceState(null, '', '/');
 }
 
-map.on('load', async () => {
+// « style.load » et non « load » : MapLibre ne déclenche « load » qu'une fois le fond de carte téléchargé. Les lieux,
+// la recherche et les itinéraires n'attendent pas le fond.
+map.once('style.load', async () => {
   addMapLayers();
   await loadCampusMap();
   const contributionLinkCode = new URLSearchParams(location.search).get('contribuer');
