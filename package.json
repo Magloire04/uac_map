@@ -1,6 +1,6 @@
 {
   "name": "uac-map",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "Carte et guidage piéton du campus de l'Université d'Abomey-Calavi",
   "type": "module",
@@ -20,13 +20,16 @@
     "import-osm": "node --env-file-if-exists=.env scripts/importOpenStreetMap.js",
     "import-perimeter": "node --env-file-if-exists=.env scripts/importPerimeter.js",
     "purge-contributors": "node --env-file-if-exists=.env scripts/purgeContributors.js",
+    "build-basemap": "node scripts/buildBasemap.js",
     "database:migrate": "node --env-file-if-exists=.env scripts/migrateDatabase.js",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
+    "@protomaps/basemaps": "^5.7.2",
     "express": "^5.2.1",
     "maplibre-gl": "^6.11.2",
     "mysql2": "^3.24.4",
+    "pmtiles": "^4.5.0",
     "qrcode": "^1.5.4",
     "selfsigned": "^5.5.0"
   },

@@ -19,8 +19,8 @@ Ce projet sert le fond de plan depuis le serveur de l'application, sous forme de
 
 | Sujet               | Décision                                                                                                                                                         |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Format              | Un fichier PMTiles de tuiles vectorielles, extrait des builds Protomaps (données OpenStreetMap), niveaux de zoom 0 à 15                                          |
-| Zone                | Le campus et environ 3 km autour : 1,8 Mo. La carte ne permet pas d'en sortir                                                                                    |
+| Format              | Un fichier PMTiles de tuiles vectorielles, extrait des builds Protomaps (données OpenStreetMap), niveaux de zoom 11 à 15                                         |
+| Zone                | Le campus et environ 3 km autour : 1,2 Mo. La carte ne permet pas d'en sortir                                                                                    |
 | Chargement          | Le fichier entier est téléchargé une fois, puis lu en mémoire. Pas de lecture par morceaux                                                                       |
 | Hébergement         | Le fichier, les polices et les icônes sont versionnés dans le dépôt et servis par l'application. Aucun appel extérieur pour le plan                              |
 | Style               | Style « light » de Protomaps, libellés en français, sans la couche des lieux OpenStreetMap : seuls les lieux de l'application apparaissent                       |
@@ -38,8 +38,8 @@ Ce projet sert le fond de plan depuis le serveur de l'application, sous forme de
 
 - Zone, en degrés (ouest, sud, est, nord) : `2.3104, 6.3822, 2.3736, 6.4500`. Elle prolonge d'environ 3 km de chaque côté le périmètre du campus importé en production. Elle est définie une seule fois, dans `shared/basemap.js`, et sert à la fois à l'extraction et à la limite de navigation.
 - Source : le build quotidien de Protomaps, `https://build.protomaps.com/AAAAMMJJ.pmtiles`, dérivé d'OpenStreetMap et de Natural Earth, schéma de tuiles version 4.
-- Extraction : `pmtiles extract` avec la zone ci-dessus et `--maxzoom=15`. Au-delà du zoom 15, MapLibre agrandit les tuiles vectorielles sans perte de netteté.
-- Résultat : `public/basemap/campus.pmtiles`, environ 1,8 Mo, données du jour du build. Le fichier est versionné dans le dépôt : `git pull` suffit à le mettre en production.
+- Extraction : `pmtiles extract` avec la zone ci-dessus, `--minzoom=11` et `--maxzoom=15`. La carte ne pouvant pas sortir de la zone, rien n'est affichable en dessous du zoom 12 ; les zooms plus petits, un tiers du fichier, ne sont pas extraits. Au-delà du zoom 15, MapLibre agrandit les tuiles vectorielles sans perte de netteté.
+- Résultat : `public/basemap/campus.pmtiles`, environ 1,2 Mo, données du jour du build. Le fichier est versionné dans le dépôt : `git pull` suffit à le mettre en production.
 
 ### Régénération
 
@@ -101,7 +101,7 @@ Elle demande l'outil `pmtiles` (binaire officiel de `protomaps/go-pmtiles`, dans
   - la zone est valide, contient le centre du campus, et chacun de ses bords est à plus de 3,4 km de ce centre ;
   - la couche `pois` est retirée, les autres restent dans le même ordre, la liste d'origine n'est pas modifiée ;
   - le style n'appelle que l'origine du site, sauf la source satellite ; la couche satellite est cachée par défaut et placée après les couches du fond ;
-  - les arguments de `pmtiles extract` reprennent la zone, le zoom maximal et la date.
+  - les arguments de `pmtiles extract` reprennent la zone, les zooms minimal et maximal et la date ; l'en-tête du fichier versionné correspond à la zone et aux zooms.
 - Intégration : le serveur sert `campus.pmtiles` (en-tête `PMTiles`), une police, une icône, les deux bibliothèques ; la politique de sécurité ne cite plus `tile.openstreetmap.org`.
 - Navigateur, au format mobile puis ordinateur :
   - aucune requête vers un autre domaine sur la page d'un visiteur ;
@@ -137,7 +137,7 @@ Mise en ligne par `scripts/deployment/updateProduction.sh` : le fichier de fond 
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | Les builds quotidiens de Protomaps ne restent en ligne que quelques jours | La commande prend la date en paramètre ; à défaut, Planetiler et l'extrait Bénin de Geofabrik produisent le même fichier |
 | Données figées au jour du build                                           | Régénérer quand le quartier change ; le relevé du campus, lui, vit dans l'application                                    |
-| 1,8 Mo à télécharger au premier passage sur un réseau mobile              | Les couches de l'application, la recherche et les itinéraires n'attendent pas le fond                                    |
+| 1,2 Mo à télécharger au premier passage sur un réseau mobile              | Les couches de l'application, la recherche et les itinéraires n'attendent pas le fond                                    |
 | Le dépôt grossit d'environ 2 Mo à chaque régénération                     | Régénérations rares                                                                                                      |
 | Style et tuiles de versions incompatibles                                 | Versions figées ; vérification dans le navigateur à chaque mise à jour des bibliothèques                                 |
 | Caractère absent des plages de polices fournies                           | Plages choisies pour le français, le fon et le yoruba ; une plage manquante n'efface qu'un caractère, pas le libellé     |
@@ -145,7 +145,7 @@ Mise en ligne par `scripts/deployment/updateProduction.sh` : le fichier de fond 
 
 ## 15. Licences et mentions
 
-- Données : © contributeurs OpenStreetMap (ODbL), Natural Earth (domaine public) aux petits zooms, via le schéma Protomaps (BSD).
+- Données : © contributeurs OpenStreetMap (ODbL), via le schéma Protomaps (BSD). Natural Earth (domaine public) ne sert qu'aux petits zooms, qui ne sont pas extraits.
 - Polices Noto Sans : SIL Open Font License. Icônes : licence MIT (tangrams/icons).
 - Bibliothèques : `pmtiles` et `@protomaps/basemaps` sous licence BSD-3-Clause.
 - Le README reprend ces mentions dans sa section « Licence ».
