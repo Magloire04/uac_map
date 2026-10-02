@@ -41,7 +41,8 @@ import { PLACE_CATEGORIES } from '../shared/search.js';
 import { PATH_TYPES } from '../shared/graph.js';
 
 const PROJECT_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const TILE_HOSTS = ['https://tile.openstreetmap.org', 'https://server.arcgisonline.com'];
+// Le plan est servi par le site (public/basemap) ; seule l'imagerie satellite des modes d'édition vient d'Esri.
+const SATELLITE_HOSTS = ['https://server.arcgisonline.com'];
 const MIN_ADMIN_TOKEN_LENGTH = 18;
 const DUPLICATE_ENTRY = 'ER_DUP_ENTRY';
 
@@ -49,8 +50,8 @@ function setSecurityHeaders(_request, response, next) {
   response.set({
     'Content-Security-Policy': [
       "default-src 'self'",
-      `img-src 'self' data: blob: ${TILE_HOSTS.join(' ')}`,
-      `connect-src 'self' ${TILE_HOSTS.join(' ')}`,
+      `img-src 'self' data: blob: ${SATELLITE_HOSTS.join(' ')}`,
+      `connect-src 'self' ${SATELLITE_HOSTS.join(' ')}`,
       "script-src 'self'",
       "style-src 'self' 'unsafe-inline'",
       "worker-src 'self' blob:",
@@ -60,7 +61,7 @@ function setSecurityHeaders(_request, response, next) {
       "form-action 'self'",
     ].join('; '),
     'X-Content-Type-Options': 'nosniff',
-    // Les serveurs de tuiles OpenStreetMap exigent un Referer : seule l'origine du site part vers un autre domaine.
+    // Vers un autre domaine (imagerie satellite), seule l'origine du site part, jamais le chemin ni les paramètres.
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'geolocation=(self), camera=(), microphone=()',
     'Cross-Origin-Opener-Policy': 'same-origin',
@@ -392,6 +393,11 @@ export function createApp({
   app.use('/api', (_request, response) => sendError(response, 404, 'ROUTE_NOT_FOUND', 'Route inconnue'));
   app.use('/shared', express.static(join(PROJECT_ROOT, 'shared')));
   app.use('/vendor/maplibre', express.static(join(PROJECT_ROOT, 'node_modules/maplibre-gl/dist'), { maxAge: '7d' }));
+  app.use('/vendor/pmtiles', express.static(join(PROJECT_ROOT, 'node_modules/pmtiles/dist'), { maxAge: '7d' }));
+  app.use(
+    '/vendor/protomaps-basemaps',
+    express.static(join(PROJECT_ROOT, 'node_modules/@protomaps/basemaps/dist/esm'), { maxAge: '7d' }),
+  );
   app.use(express.static(join(PROJECT_ROOT, 'public')));
 
   // Réponses d'erreur génériques : jamais de trace d'exécution envoyée au client.

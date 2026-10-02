@@ -92,6 +92,7 @@ export function createMapEditor(context) {
     collectBar.hidden = false;
     collectBar.dataset.mode = profile.mode;
     context.toggleSatellite(true);
+    selectElement('#layer-button').hidden = false;
     context.renderEntrances();
     context.renderPerimeter();
     render();
@@ -115,6 +116,9 @@ export function createMapEditor(context) {
     state.hooks.onPlaceClick = null;
     selectElement('#top-bar').hidden = false;
     selectElement('#collect-bar').hidden = true;
+    // La vue satellite est réservée aux modes d'édition : hors mode, retour au plan servi par le site.
+    context.toggleSatellite(false);
+    selectElement('#layer-button').hidden = true;
     setSourceData('draft', toFeatureCollection([]));
     context.renderEntrances();
     context.renderPerimeter();

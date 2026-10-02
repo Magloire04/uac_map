@@ -2,11 +2,21 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { Map as MapLibreMap, Marker, ScaleControl } from '/vendor/maplibre/maplibre-gl.mjs';
+import { Map as MapLibreMap, Marker, ScaleControl, addProtocol } from '/vendor/maplibre/maplibre-gl.mjs';
+import { layers as protomapsLayers, namedFlavor } from '/vendor/protomaps-basemaps/index.js';
 import { buildGraph, findRoute } from '/shared/graph.js';
 import { buildSearchIndex, searchPlaces, PLACE_CATEGORIES } from '/shared/search.js';
 import { buildRouteSteps, formatDistance, formatDuration } from '/shared/instructions.js';
 import { getDistance, locateOnLine, createCirclePolygon, getLineLength } from '/shared/geo.js';
+import {
+  BASEMAP_ARCHIVE_KEY,
+  BASEMAP_ARCHIVE_URL,
+  BASEMAP_BOUNDS,
+  BASEMAP_FLAVOR,
+  BASEMAP_LANGUAGE,
+  BASEMAP_SOURCE_ID,
+  createMapStyle,
+} from '/shared/basemap.js';
 import { html } from '/safeHtml.js';
 import { callApi } from '/apiClient.js';
 import { initCollectMode } from '/collectMode.js';
@@ -58,35 +68,33 @@ const state = {
 
 // ---------- Carte ----------
 
+// Fond de carte : le fichier est petit (moins de 2 Mo) ; il est téléchargé une fois puis lu en mémoire par le
+// protocole pmtiles://. Le service worker le garde : tout le fond de la zone reste disponible sans réseau.
+const basemapArchive = fetch(BASEMAP_ARCHIVE_URL).then((response) => {
+  if (!response.ok) throw new Error(`Fond de carte : ${response.status}`);
+  return response.arrayBuffer();
+});
+const { PMTiles, Protocol } = globalThis.pmtiles;
+const basemapProtocol = new Protocol();
+basemapProtocol.add(
+  new PMTiles({
+    getKey: () => BASEMAP_ARCHIVE_KEY,
+    getBytes: async (offset, length) => ({ data: (await basemapArchive).slice(offset, offset + length) }),
+  }),
+);
+addProtocol('pmtiles', basemapProtocol.tile);
+
 const map = new MapLibreMap({
   container: 'map',
-  style: {
-    version: 8,
-    sources: {
-      streets: {
-        type: 'raster',
-        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-        tileSize: 256,
-        maxzoom: 19,
-        attribution: '© contributeurs OpenStreetMap',
-      },
-      satellite: {
-        type: 'raster',
-        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-        tileSize: 256,
-        maxzoom: 18,
-        attribution: 'Imagerie © Esri, Maxar, Earthstar Geographics',
-      },
-    },
-    layers: [
-      { id: 'background', type: 'background', paint: { 'background-color': '#ebe7df' } },
-      { id: 'streets', type: 'raster', source: 'streets' },
-      { id: 'satellite', type: 'raster', source: 'satellite', layout: { visibility: 'none' } },
-    ],
-  },
+  style: createMapStyle({
+    basemapLayers: protomapsLayers(BASEMAP_SOURCE_ID, namedFlavor(BASEMAP_FLAVOR), { lang: BASEMAP_LANGUAGE }),
+    origin: location.origin,
+  }),
   center: DEFAULT_CENTER,
   zoom: 16,
   maxZoom: 20.5,
+  // On ne sort pas de la zone couverte par le fond : jamais de carte vide.
+  maxBounds: BASEMAP_BOUNDS,
   dragRotate: false,
   touchPitch: false,
   attributionControl: { compact: true },
@@ -283,7 +291,6 @@ const getPlacePosition = (place) => [place.longitude, place.latitude];
 function toggleSatellite(isSatellite = !state.isSatellite) {
   state.isSatellite = isSatellite;
   map.setLayoutProperty('satellite', 'visibility', isSatellite ? 'visible' : 'none');
-  map.setLayoutProperty('streets', 'visibility', isSatellite ? 'none' : 'visible');
   selectElement('#layer-button').classList.toggle('is-active', isSatellite);
 }
 
@@ -299,6 +306,10 @@ function showToast(message, durationMs = 3500) {
     toast.hidden = true;
   }, durationMs);
 }
+
+basemapArchive.catch(() =>
+  showToast('Fond de carte indisponible : les lieux et les itinéraires restent utilisables.', 6000),
+);
 
 function openSheet(content) {
   const sheet = selectElement('#sheet');
@@ -987,7 +998,9 @@ function applyUrlParameters() {
   if (currentPlace || sharedPlace) history.replaceState(null, '', '/');
 }
 
-map.on('load', async () => {
+// « style.load » et non « load » : MapLibre ne déclenche « load » qu'une fois le fond de carte téléchargé. Les lieux,
+// la recherche et les itinéraires n'attendent pas le fond.
+map.once('style.load', async () => {
   addMapLayers();
   await loadCampusMap();
   const contributionLinkCode = new URLSearchParams(location.search).get('contribuer');
