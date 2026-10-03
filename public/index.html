@@ -52,7 +52,6 @@
         type="button"
         aria-label="Basculer plan ou satellite"
         title="Plan / satellite"
-        hidden
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
           <path d="M12 3l9 5-9 5-9-5 9-5z" />
@@ -101,10 +100,6 @@
           ><span>Jeton d'accès</span>
           <input id="token-input" type="password" autocomplete="current-password" required />
         </label>
-        <p class="note">
-          Administrateur : le jeton ADMIN_TOKEN (en local, le fichier data/.admin-token). Relecteur : le jeton personnel
-          remis par l'administrateur.
-        </p>
         <p class="error-message" id="login-error"></p>
         <div class="actions">
           <button class="button primary" type="submit">Entrer</button>
