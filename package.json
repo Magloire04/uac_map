@@ -1,6 +1,6 @@
 {
   "name": "uac-map",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Carte et guidage piéton du campus de l'Université d'Abomey-Calavi",
   "type": "module",
