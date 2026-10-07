@@ -4,6 +4,7 @@
 
 import express from 'express';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { logSecurityEvent, logError } from './securityLog.js';
@@ -35,6 +36,7 @@ import { createContributionRoutes } from './contributionRoutes.js';
 import { createAdministrationRoutes } from './administrationRoutes.js';
 import { createReviewRoutes } from './reviewRoutes.js';
 import { sendQrCode } from './qrCode.js';
+import { addCanonicalLink } from './homePage.js';
 import { createEntity, deleteEntity, updateEntity } from './mapEditing.js';
 import { cleanPlace, cleanPath, ValidationError } from '../shared/validate.js';
 import { PLACE_CATEGORIES } from '../shared/search.js';
@@ -397,6 +399,14 @@ export function createApp({
   app.use(
     '/vendor/protomaps-basemaps',
     express.static(join(PROJECT_ROOT, 'node_modules/@protomaps/basemaps/dist/esm'), { maxAge: '7d' }),
+  );
+  // L'accueil n'est pas servi tel quel : il reçoit son adresse canonique, tirée de PUBLIC_URL.
+  app.get(
+    ['/', '/index.html'],
+    asyncRoute(async (_request, response) => {
+      const homePage = await readFile(join(PROJECT_ROOT, 'public/index.html'), 'utf8');
+      response.set('Cache-Control', 'public, max-age=0').type('html').send(addCanonicalLink(homePage, publicUrl));
+    }),
   );
   app.use(express.static(join(PROJECT_ROOT, 'public')));
 

@@ -108,6 +108,7 @@ cPanel, Tâches Cron, ajouter :
 5. Créer un lieu, redémarrer l'application (RESTART) : le lieu est toujours là et la session reste ouverte.
 6. Le QR code d'un lieu, scanné, ouvre `https://uacmap.bytechnum.com/?ici=<identifiant>`.
 7. Télécharger une sauvegarde (Gestionnaire de fichiers, `backups/uac_map`) et la réimporter en local (section 4).
+8. Le code source de l'accueil contient `<link rel="canonical" href="https://uacmap.bytechnum.com/" />`. Sinon, `PUBLIC_URL` est vide ou erroné dans `.env`.
 
 ## 3. Mise à jour
 
