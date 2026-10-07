@@ -5,7 +5,7 @@
 
 Carte et guidage piéton du campus de l'Université d'Abomey-Calavi (UAC). On cherche « scolarité », « BU » ou « amphi 1000 », et l'appli trace le chemin à pied jusqu'à la bonne porte, avec des consignes en français et un guidage GPS. Elle s'ouvre dans le navigateur du téléphone, sans installation, et reste utilisable sans réseau une fois la carte chargée.
 
-**En ligne :** [uacmap.bytechnum.com](https://uacmap.bytechnum.com) · version 0.4.1
+**En ligne :** [uacmap.bytechnum.com](https://uacmap.bytechnum.com) · version 0.4.2
 
 | Itinéraire                                                                 | Mode collecte                                                   |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
