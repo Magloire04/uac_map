@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 // Fond de carte auto-hébergé : zone couverte par public/basemap/campus.pmtiles, style de la carte et extraction.
-// Le plan est servi par le site ; seule l'imagerie satellite, réservée aux modes d'édition, vient d'Esri.
+// Le plan est servi par le site ; seule l'imagerie satellite, affichée par défaut, vient d'Esri.
 
 // Ouest, sud, est, nord : le périmètre du campus prolongé d'environ 3 km de chaque côté.
 export const BASEMAP_BOUNDS = [2.3104, 6.3822, 2.3736, 6.45];
@@ -28,7 +28,8 @@ const SATELLITE_ATTRIBUTION = 'Imagerie © Esri, Maxar, Earthstar Geographics';
 export const withoutPointsOfInterest = (layers) =>
   layers.filter((layer) => layer['source-layer'] !== POINTS_OF_INTEREST_LAYER);
 
-// Style MapLibre : couches Protomaps (plan), puis la couche satellite, cachée par défaut. Les couches de
+// Style MapLibre : couches Protomaps (plan), puis la couche satellite, visible par défaut : le plan reste dessous
+// et réapparaît là où une tuile manque, par exemple hors réseau. Les couches de
 // l'application s'ajoutent par-dessus au chargement de la carte.
 export function createMapStyle({ basemapLayers, origin }) {
   return {
@@ -51,7 +52,7 @@ export function createMapStyle({ basemapLayers, origin }) {
     },
     layers: [
       ...withoutPointsOfInterest(basemapLayers),
-      { id: 'satellite', type: 'raster', source: 'satellite', layout: { visibility: 'none' } },
+      { id: 'satellite', type: 'raster', source: 'satellite', layout: { visibility: 'visible' } },
     ],
   };
 }

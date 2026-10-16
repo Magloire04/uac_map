@@ -118,7 +118,7 @@ Signaler une vulnérabilité : [SECURITY.md](SECURITY.md).
 ## Limites connues
 
 - Précision GPS : environ 5 m à découvert, bien moins sous les arbres. Le cercle de précision est affiché ; les QR codes donnent un départ exact.
-- Fond de plan figé à la date de son extrait OpenStreetMap (`npm run build-basemap` pour le rafraîchir) et limité au campus et 3 km autour. La vue satellite, activée par le bouton des calques, vient d'Esri.
+- Fond de plan figé à la date de son extrait OpenStreetMap (`npm run build-basemap` pour le rafraîchir) et limité au campus et 3 km autour. La carte s'ouvre sur la vue satellite d'Esri ; le bouton des calques ramène au plan.
 - Un navigateur permet de simuler une position : la relecture, les limites d'envoi et le blocage traitent les abus.
 - Pas encore de plans d'intérieur ni d'étages.
 
