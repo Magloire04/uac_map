@@ -59,11 +59,11 @@ test("le style n'appelle que le site, sauf l'imagerie satellite", () => {
   assert.equal(Object.keys(style.sources).length, 2);
 });
 
-test('la couche satellite est cachée par défaut et posée sur le fond', () => {
+test('la couche satellite est visible par défaut et posée sur le fond', () => {
   const style = createMapStyle({ basemapLayers, origin: ORIGIN });
   const satellite = style.layers.at(-1);
   assert.equal(satellite.id, 'satellite');
-  assert.equal(satellite.layout.visibility, 'none');
+  assert.equal(satellite.layout.visibility, 'visible');
   assert.ok(!style.layers.some((layer) => layer['source-layer'] === 'pois'));
 });
 

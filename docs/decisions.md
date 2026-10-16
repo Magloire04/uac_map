@@ -78,3 +78,9 @@ Détail : [specs/2026-10-01-fond-de-carte-auto-heberge.md](specs/2026-10-01-fond
 Le bouton des calques et la vue satellite d'Esri, réservés aux modes d'édition depuis la version 0.4.0, redeviennent accessibles à tous. Esri n'est appelé que lorsqu'un visiteur active le satellite : le plan reste servi par le site, et l'adresse IP du visiteur ne part chez Esri qu'à ce moment. Les modes d'édition s'ouvrent toujours sur le satellite ; à la sortie, la carte reprend le fond choisi avant l'ouverture. Aucune imagerie libre ne couvre le campus (OpenAerialMap vide, images de satellites libres de 10 à 30 m) et les conditions d'Esri interdisent de la copier : un satellite sans tiers demanderait un survol par drone ou l'achat d'une image.
 
 **À revoir** : Esri est appelé sans clé et le trafic des visiteurs s'y ajoute à celui de l'équipe. Si l'usage grandit, créer une clé d'accès gratuite chez Esri ou passer à une imagerie propre.
+
+## 2026-10-16 · Satellite par défaut
+
+La carte s'ouvre sur la vue satellite, y compris pour les visiteurs. Le bouton des calques ramène au plan, et le choix du visiteur n'est pas mémorisé : à l'ouverture suivante, la carte repart sur le satellite. Le plan reste servi par le site sous l'imagerie et réapparaît là où une tuile manque, par exemple hors réseau. Conséquence : Esri est appelé dès l'ouverture, et l'adresse IP de chaque visiteur lui parvient avec la première tuile.
+
+**À revoir** : la charge sur Esri suit désormais tout le trafic du site. Surveiller les tuiles refusées, et passer à une clé d'accès gratuite ou à une imagerie propre si l'usage grandit.

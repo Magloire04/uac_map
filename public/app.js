@@ -60,7 +60,7 @@ const state = {
   isAwaitingOrigin: false,
   navigation: { isActive: false, offRouteCount: 0, isFollowing: true, hasArrived: false },
   mode: null,
-  isSatellite: false,
+  isSatellite: true, // même valeur que la visibilité initiale de la couche, dans shared/basemap.js
   hooks: { onMapClick: null, onPlaceClick: null, onSheetAction: null, onSheetChange: null },
   lastMarkerClickTime: 0,
   hasCentered: false,
@@ -1002,6 +1002,7 @@ function applyUrlParameters() {
 // la recherche et les itinéraires n'attendent pas le fond.
 map.once('style.load', async () => {
   addMapLayers();
+  selectElement('#layer-button').classList.toggle('is-active', state.isSatellite);
   await loadCampusMap();
   const contributionLinkCode = new URLSearchParams(location.search).get('contribuer');
   applyUrlParameters();
