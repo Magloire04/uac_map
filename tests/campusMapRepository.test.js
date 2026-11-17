@@ -163,7 +163,13 @@ databaseTest('relit un chemin de 5000 points à l’identique', async () => {
   const coordinates = Array.from({ length: 5000 }, (_, index) => offsetPosition(index * 0.37, index * -0.21));
   const path = buildPath({ coordinates });
   await insertPath(database, path);
-  assert.deepEqual(await findPath(database, path.id), path);
+  const found = await findPath(database, path.id);
+  // MySQL 8 stocke les décimaux d'une colonne JSON en binaire (dernier chiffre arrondi), MariaDB les garde tels quels.
+  assert.deepEqual({ ...found, coordinates: undefined }, { ...path, coordinates: undefined });
+  assert.equal(found.coordinates.length, coordinates.length);
+  found.coordinates.forEach((position, index) => {
+    position.forEach((value, axis) => assert.ok(Math.abs(value - coordinates[index][axis]) < 1e-9));
+  });
 });
 
 databaseTest('remplace un chemin, tracé compris, et ignore un identifiant inconnu', async () => {
